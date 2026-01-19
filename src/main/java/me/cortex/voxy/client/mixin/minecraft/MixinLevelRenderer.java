@@ -21,15 +21,21 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(LevelRenderer.class)
 public abstract class MixinLevelRenderer implements IGetVoxyRenderSystem {
-    @Shadow private @Nullable ClientLevel level;
-    @Unique private VoxyRenderSystem renderer;
+    @Shadow
+    private @Nullable ClientLevel level;
+    @Unique
+    private VoxyRenderSystem renderer;
 
     @Override
     public VoxyRenderSystem getVoxyRenderSystem() {
+        // Lazily try to create renderer if it was deferred due to null player
+        if (this.renderer == null && this.level != null) {
+            this.createRenderer();
+        }
         return this.renderer;
     }
 
-    @Inject(method = "allChanged()V", at = @At("RETURN"), order = 900)//We want to inject before sodium
+    @Inject(method = "allChanged()V", at = @At("RETURN"), order = 900) // We want to inject before sodium
     private void reloadVoxyRenderer(CallbackInfo ci) {
         this.shutdownRenderer();
         if (this.level != null) {
@@ -59,20 +65,17 @@ public abstract class MixinLevelRenderer implements IGetVoxyRenderSystem {
 
     @Override
     public void createRenderer() {
-        if (this.renderer != null) throw new IllegalStateException("Cannot have multiple renderers");
-        if (!VoxyConfig.CONFIG.enabled) {
-            Logger.info("Not creating renderer due to disabled");
-            return;
-        }
+        if (this.renderer != null)
+            throw new IllegalStateException("Cannot have multiple renderers");
         if (!VoxyConfig.CONFIG.isRenderingEnabled()) {
-            Logger.info("Not creating renderer due to disabled rendering");
+            Logger.info("Not creating renderer due to disabled");
             return;
         }
         if (this.level == null) {
             Logger.error("Not creating renderer due to null world");
             return;
         }
-        var instance = (VoxyClientInstance)VoxyCommon.getInstance();
+        var instance = (VoxyClientInstance) VoxyCommon.getInstance();
         if (instance == null) {
             Logger.error("Not creating renderer due to null instance");
             return;
@@ -80,6 +83,12 @@ public abstract class MixinLevelRenderer implements IGetVoxyRenderSystem {
         WorldEngine world = WorldIdentifier.ofEngine(this.level);
         if (world == null) {
             Logger.error("Null world selected");
+            return;
+        }
+        // Check that player is initialized before creating renderer, as the camera
+        // needs it
+        if (net.minecraft.client.Minecraft.getInstance().player == null) {
+            Logger.info("Deferring renderer creation until player is initialized");
             return;
         }
         try {

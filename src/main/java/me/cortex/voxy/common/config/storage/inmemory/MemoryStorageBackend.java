@@ -11,7 +11,7 @@ import me.cortex.voxy.common.config.storage.StorageConfig;
 import me.cortex.voxy.common.util.MemoryBuffer;
 import net.minecraft.world.level.levelgen.RandomSupport;
 import org.apache.commons.lang3.stream.Streams;
-import org.lwjgl.system.MemoryUtil;
+import me.cortex.voxy.common.util.UnsafeUtil;
 
 import java.nio.ByteBuffer;
 import java.util.function.LongConsumer;
@@ -26,7 +26,8 @@ public class MemoryStorageBackend extends StorageBackend {
     }
 
     private Long2ObjectMap<MemoryBuffer> getMap(long key) {
-        return this.maps[(int) (RandomSupport.mixStafford13(RandomSupport.mixStafford13(key)^key)&(this.maps.length-1))];
+        return this.maps[(int) (RandomSupport.mixStafford13(RandomSupport.mixStafford13(key) ^ key)
+                & (this.maps.length - 1))];
     }
 
     @Override
@@ -39,7 +40,7 @@ public class MemoryStorageBackend extends StorageBackend {
     }
 
     public MemoryStorageBackend(int slicesBitCount) {
-        this.maps = new Long2ObjectMap[1<<slicesBitCount];
+        this.maps = new Long2ObjectMap[1 << slicesBitCount];
         for (int i = 0; i < this.maps.length; i++) {
             this.maps[i] = new Long2ObjectOpenHashMap<>();
         }
@@ -85,11 +86,11 @@ public class MemoryStorageBackend extends StorageBackend {
     @Override
     public void putIdMapping(int id, ByteBuffer data) {
         synchronized (this.idMappings) {
-            var cpy = MemoryUtil.memAlloc(data.remaining());
-            MemoryUtil.memCopy(data, cpy);
+            var cpy = UnsafeUtil.memAlloc(data.remaining());
+            UnsafeUtil.memCopy(data, cpy);
             var prev = this.idMappings.put(id, cpy);
             if (prev != null) {
-                MemoryUtil.memFree(prev);
+                UnsafeUtil.memFree(prev);
             }
         }
     }
@@ -116,7 +117,7 @@ public class MemoryStorageBackend extends StorageBackend {
     @Override
     public void close() {
         Streams.of(this.maps).map(Long2ObjectMap::values).flatMap(ObjectCollection::stream).forEach(MemoryBuffer::free);
-        this.idMappings.values().forEach(MemoryUtil::memFree);
+        this.idMappings.values().forEach(UnsafeUtil::memFree);
     }
 
     public static class Config extends StorageConfig {

@@ -2,58 +2,47 @@ package me.cortex.voxy.commonImpl;
 
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.config.Serialization;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.api.ModInitializer;
-import net.fabricmc.loader.api.FabricLoader;
-import net.fabricmc.loader.api.ModContainer;
+import net.neoforged.fml.loading.FMLLoader;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.ModList;
+import net.neoforged.api.distmarker.Dist;
 
-public class VoxyCommon implements ModInitializer {
-    public static final String MOD_VERSION;
-    public static final boolean IS_DEDICATED_SERVER;
-    public static final boolean IS_IN_MINECRAFT;
+public class VoxyCommon {
+    public static String MOD_VERSION = "UNKNOWN";
+    public static boolean IS_DEDICATED_SERVER = false;
+    public static boolean IS_IN_MINECRAFT = false;
 
-    static {
-        ModContainer mod = (ModContainer) FabricLoader.getInstance().getModContainer("voxy").orElse(null);
-        if (mod == null) {
-            IS_IN_MINECRAFT = false;
-            Logger.error("Running voxy without minecraft");
-            MOD_VERSION = "<UNKNOWN>";
-            IS_DEDICATED_SERVER = false;
-        } else {
-            IS_IN_MINECRAFT = true;
-            var version = mod.getMetadata().getVersion().getFriendlyString();
-            var commit = mod.getMetadata().getCustomValue("commit").getAsString();
-            MOD_VERSION = version + "-" + commit;
-            IS_DEDICATED_SERVER = FabricLoader.getInstance().getEnvironmentType() == EnvType.SERVER;
-            Serialization.init();
-        }
+    public static void cleanInit(String version, boolean isDedicatedServer) {
+        IS_IN_MINECRAFT = true;
+        MOD_VERSION = version;
+        IS_DEDICATED_SERVER = isDedicatedServer;
+        Serialization.init();
     }
 
-    //This is hardcoded like this because people do not understand what they are doing
+    // This is hardcoded like this because people do not understand what they are
+    // doing
     public static boolean isVerificationFlagOn(String name) {
         return isVerificationFlagOn(name, false);
     }
 
     public static boolean isVerificationFlagOn(String name, boolean defaultOn) {
-        return System.getProperty("voxy."+name, defaultOn?"true":"false").equals("true");
+        return System.getProperty("voxy." + name, defaultOn ? "true" : "false").equals("true");
     }
 
     public static void breakpoint() {
         int breakpoint = 0;
     }
 
-    @Override
-    public void onInitialize() {
-
+    public interface IInstanceFactory {
+        VoxyInstance create();
     }
 
-    public interface IInstanceFactory {VoxyInstance create();}
     private static VoxyInstance INSTANCE;
     private static IInstanceFactory FACTORY = null;
 
     public static void setInstanceFactory(IInstanceFactory factory) {
         if (FACTORY != null) {
-            throw new IllegalStateException("Cannot set instance factory more than once");
+            return;
         }
         FACTORY = factory;
     }
@@ -65,14 +54,13 @@ public class VoxyCommon implements ModInitializer {
     public static void shutdownInstance() {
         if (INSTANCE != null) {
             var instance = INSTANCE;
-            INSTANCE = null;//Make it null before shutdown
+            INSTANCE = null; // Make it null before shutdown
             instance.shutdown();
         }
     }
 
     public static void createInstance() {
         if (FACTORY == null) {
-            //Logger.info("Voxy factory");
             return;
         }
         if (INSTANCE != null) {
@@ -81,7 +69,7 @@ public class VoxyCommon implements ModInitializer {
         INSTANCE = FACTORY.create();
     }
 
-    //Is voxy available in any capacity
+    // Is voxy available in any capacity
     public static boolean isAvailable() {
         return FACTORY != null;
     }

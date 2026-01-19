@@ -5,7 +5,7 @@ import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import me.cortex.voxy.common.Logger;
-import net.fabricmc.loader.api.FabricLoader;
+import net.neoforged.fml.ModList;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -23,7 +23,7 @@ public class Serialization {
     public static final Set<Class<?>> CONFIG_TYPES = new HashSet<>();
     public static Gson GSON;
 
-    private static final class GsonConfigSerialization <T> implements TypeAdapterFactory {
+    private static final class GsonConfigSerialization<T> implements TypeAdapterFactory {
         private final String typeField = "TYPE";
         private final Class<T> clz;
 
@@ -44,7 +44,6 @@ public class Serialization {
             return this;
         }
 
-
         private T deserialize(Gson gson, JsonElement json) {
             var retype = this.name2type.get(json.getAsJsonObject().remove(this.typeField).getAsString());
             return gson.getDelegateAdapter(this, TypeToken.get(retype)).fromJsonTree(json);
@@ -59,13 +58,12 @@ public class Serialization {
             var vjson = gson
                     .getDelegateAdapter(this, TypeToken.get((Class<T>) value.getClass()))
                     .toJsonTree(value);
-            //All of this is so that the config_type is at the top :blob_face:
+            // All of this is so that the config_type is at the top :blob_face:
             var json = new JsonObject();
             json.addProperty(this.typeField, name);
             vjson.getAsJsonObject().asMap().forEach(json::add);
             return json;
         }
-
 
         @Override
         public <X> TypeAdapter<X> create(Gson gson, TypeToken<X> type) {
@@ -95,36 +93,38 @@ public class Serialization {
         Map<Class<?>, GsonConfigSerialization<?>> serializers = new HashMap<>();
 
         Set<String> clazzs = new LinkedHashSet<>();
-        var path = FabricLoader.getInstance().getModContainer("voxy").get().getRootPaths().get(0);
-        clazzs.addAll(collectAllClasses(path, BASE_SEARCH_PACKAGE));
+        var modOpt = ModList.get().getModFileById("voxy");
+        if (modOpt != null) {
+            var path = modOpt.getFile().getSecureJar().getRootPath();
+            clazzs.addAll(collectAllClasses(path, BASE_SEARCH_PACKAGE));
+        }
         clazzs.addAll(collectAllClasses(BASE_SEARCH_PACKAGE));
         int count = 0;
-        outer:
-        for (var clzName : clazzs) {
-            if (!clzName.toLowerCase(Locale.ROOT).contains("config")) {
-                continue;//Only load classes that contain the word config
+        outer: for (var clzName : clazzs) {
+            if (!clzName.toLowerCase().contains("config")) {
+                continue;// Only load classes that contain the word config
             }
             if (clzName.contains("mixin")) {
-                continue;//Dont want to load mixins
+                continue;// Dont want to load mixins
             }
             if (clzName.contains("ModMenuIntegration")) {
-                continue;//Dont want to modmenu incase it doesnt exist
+                continue;// Dont want to modmenu incase it doesnt exist
             }
             if (clzName.contains("VoxyConfigScreenPages")) {
-                continue;//Dont want to modmenu incase it doesnt exist
+                continue;// Dont want to modmenu incase it doesnt exist
             }
             if (clzName.endsWith("VoxyConfig")) {
-                continue;//Special case to prevent recursive loading pain
+                continue;// Special case to prevent recursive loading pain
             }
 
             if (clzName.equals(Serialization.class.getName())) {
-                continue;//Dont want to load ourselves
+                continue;// Dont want to load ourselves
             }
 
             try {
                 var clz = Class.forName(clzName);
                 if (Modifier.isAbstract(clz.getModifiers())) {
-                    //Dont want to register abstract classes
+                    // Dont want to register abstract classes
                     continue;
                 }
                 var original = clz;
@@ -134,16 +134,19 @@ public class Serialization {
                         try {
                             nameMethod = original.getMethod("getConfigTypeName");
                             nameMethod.setAccessible(true);
-                        } catch (NoSuchMethodException e) {}
+                        } catch (NoSuchMethodException e) {
+                        }
                         if (nameMethod == null) {
-                            Logger.error("WARNING: Config class " + clzName + " doesnt contain a getConfigTypeName and thus wont be serializable");
+                            Logger.error("WARNING: Config class " + clzName
+                                    + " doesnt contain a getConfigTypeName and thus wont be serializable");
                             continue outer;
                         }
                         count++;
                         String name = (String) nameMethod.invoke(null);
                         serializers.computeIfAbsent(clz, GsonConfigSerialization::new)
                                 .register(name, (Class) original);
-                        Logger.info("Registered " + original.getSimpleName() + " as " + name + " for config type " + clz.getSimpleName());
+                        Logger.info("Registered " + original.getSimpleName() + " as " + name + " for config type "
+                                + clz.getSimpleName());
                         break;
                     }
                 }
@@ -181,6 +184,7 @@ public class Serialization {
             return List.of();
         }
     }
+
     private static List<String> collectAllClasses(Path base, String pack) {
         if (!Files.exists(base.resolve(pack.replaceAll("[.]", "/")))) {
             return List.of();

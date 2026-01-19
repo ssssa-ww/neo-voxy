@@ -5,12 +5,12 @@ import me.cortex.voxy.common.config.ConfigBuildCtx;
 import me.cortex.voxy.common.config.storage.StorageBackend;
 import me.cortex.voxy.common.config.storage.StorageConfig;
 import me.cortex.voxy.common.util.MemoryBuffer;
+import me.cortex.voxy.common.util.UnsafeUtil;
 import me.cortex.voxy.common.world.WorldEngine;
-import org.lwjgl.system.MemoryStack;
-import org.lwjgl.system.MemoryUtil;
 import org.rocksdb.*;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -23,35 +23,35 @@ public class RocksDBStorageBackend extends StorageBackend {
     private final ReadOptions sectionReadOps;
     private final WriteOptions sectionWriteOps;
 
-    //NOTE: closes in order
+    // NOTE: closes in order
     private final List<AbstractImmutableNativeReference> closeList = new ArrayList<>();
 
     public RocksDBStorageBackend(String path) {
         /*
-        var lockPath = new File(path).toPath().resolve("LOCK");
-        if (Files.exists(lockPath)) {
-            System.err.println("WARNING, deleting rocksdb LOCK file");
-            int attempts = 10;
-            while (attempts-- != 0) {
-                try {
-                    Files.delete(lockPath);
-                    break;
-                } catch (IOException e) {
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException ex) {
-                        throw new RuntimeException(ex);
-                    }
-                }
-            }
-            if (Files.exists(lockPath)) {
-                throw new RuntimeException("Unable to delete rocksdb lock file");
-            }
-        }
+         * var lockPath = new File(path).toPath().resolve("LOCK");
+         * if (Files.exists(lockPath)) {
+         * System.err.println("WARNING, deleting rocksdb LOCK file");
+         * int attempts = 10;
+         * while (attempts-- != 0) {
+         * try {
+         * Files.delete(lockPath);
+         * break;
+         * } catch (IOException e) {
+         * try {
+         * Thread.sleep(1000);
+         * } catch (InterruptedException ex) {
+         * throw new RuntimeException(ex);
+         * }
+         * }
+         * }
+         * if (Files.exists(lockPath)) {
+         * throw new RuntimeException("Unable to delete rocksdb lock file");
+         * }
+         * }
          */
         RocksDB.loadLibrary();
 
-        //TODO: FIXME: DONT USE THE SAME options PER COLUMN FAMILY
+        // TODO: FIXME: DONT USE THE SAME options PER COLUMN FAMILY
         final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions()
                 .setCompressionType(CompressionType.ZSTD_COMPRESSION)
                 .optimizeForSmallDb();
@@ -62,30 +62,28 @@ public class RocksDBStorageBackend extends StorageBackend {
                 .setLevelCompactionDynamicLevelBytes(true)
                 .optimizeForPointLookup(128);
 
-        var bCache = new HyperClockCache(128*1024L*1024L,0, 4, false);
+        var bCache = new HyperClockCache(128 * 1024L * 1024L, 0, 4, false);
         var filter = new BloomFilter(10);
         cfWorldSecOpts.setTableFormatConfig(new BlockBasedTableConfig()
                 .setCacheIndexAndFilterBlocksWithHighPriority(true)
                 .setBlockCache(bCache)
                 .setDataBlockHashTableUtilRatio(0.75)
-                //.setIndexType(IndexType.kHashSearch)//Maybe?
+                // .setIndexType(IndexType.kHashSearch)//Maybe?
                 .setDataBlockIndexType(DataBlockIndexType.kDataBlockBinaryAndHash)
-                .setFilterPolicy(filter)
-        );
+                .setFilterPolicy(filter));
 
         final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
-            new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts),
-            new ColumnFamilyDescriptor("world_sections".getBytes(), cfWorldSecOpts),
-            new ColumnFamilyDescriptor("id_mappings".getBytes(), cfOpts)
-        );
+                new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts),
+                new ColumnFamilyDescriptor("world_sections".getBytes(), cfWorldSecOpts),
+                new ColumnFamilyDescriptor("id_mappings".getBytes(), cfOpts));
 
         final DBOptions options = new DBOptions()
-                //.setUnorderedWrite(true)
+                // .setUnorderedWrite(true)
                 .setAvoidUnnecessaryBlockingIO(true)
                 .setIncreaseParallelism(2)
                 .setCreateIfMissing(true)
                 .setCreateMissingColumnFamilies(true)
-                .setMaxTotalWalSize(1024*1024*128);//128 mb max WAL size
+                .setMaxTotalWalSize(1024 * 1024 * 128);// 128 mb max WAL size
 
         List<ColumnFamilyHandle> handles = new ArrayList<>();
 
@@ -118,51 +116,52 @@ public class RocksDBStorageBackend extends StorageBackend {
 
     @Override
     public void iterateStoredSectionPositions(LongConsumer consumer) {
-        try (var stack = MemoryStack.stackPush()) {
-            ByteBuffer keyBuff = stack.calloc(8);
-            long keyBuffPtr = MemoryUtil.memAddress(keyBuff);
-            var iter = this.db.newIterator(this.worldSections, this.sectionReadOps);
+        ByteBuffer keyBuff = ByteBuffer.allocateDirect(8).order(ByteOrder.nativeOrder());
+        long keyBuffPtr = UnsafeUtil.memAddress(keyBuff);
+        var iter = this.db.newIterator(this.worldSections, this.sectionReadOps);
+        try {
             iter.seekToFirst();
             while (iter.isValid()) {
                 iter.key(keyBuff);
-                long key = Long.reverseBytes(MemoryUtil.memGetLong(keyBuffPtr));
+                long key = Long.reverseBytes(UnsafeUtil.memGetLong(keyBuffPtr));
                 consumer.accept(key);
                 iter.next();
             }
+        } finally {
             iter.close();
         }
     }
 
     @Override
     public MemoryBuffer getSectionData(long key, MemoryBuffer scratch) {
-        try (var stack = MemoryStack.stackPush()){
-            var buffer = stack.malloc(8);
-            //HATE JAVA HATE JAVA HATE JAVA, Long.reverseBytes()
-            //THIS WILL ONLY WORK ON LITTLE ENDIAN SYSTEM AAAAAAAAA ;-;
-
-            MemoryUtil.memPutLong(MemoryUtil.memAddress(buffer), Long.reverseBytes(swizzlePos(key)));
-
-            var result = this.db.get(this.worldSections,
-                    this.sectionReadOps,
-                    buffer,
-                    MemoryUtil.memByteBuffer(scratch.address, (int) (scratch.size)));
-
-            if (result == RocksDB.NOT_FOUND) {
+        try {
+            byte[] data = this.db.get(this.worldSections, this.sectionReadOps, longToBytes(swizzlePos(key)));
+            if (data == null) {
                 return null;
             }
 
-            return scratch.subSize(result);
+            if (data.length > scratch.size) {
+                // If the data is too big, we log an error because this should theoretically
+                // never happen unless something is very wrong
+                // or the scratch buffer size heuristics are broken
+                System.err.println("Data size too big for scratch buffer: " + data.length + " vs " + scratch.size);
+                return null;
+            }
+
+            UnsafeUtil.memcpy(data, scratch.address);
+
+            return scratch.subSize(data.length);
         } catch (RocksDBException e) {
             throw new RuntimeException(e);
         }
     }
 
-    //TODO: FIXME, use the ByteBuffer variant
+    // TODO: FIXME, use the ByteBuffer variant
     @Override
     public void setSectionData(long key, MemoryBuffer data) {
-        try (var stack = MemoryStack.stackPush()) {
-            var keyBuff = stack.calloc(8);
-            MemoryUtil.memPutLong(MemoryUtil.memAddress(keyBuff), Long.reverseBytes(swizzlePos(key)));
+        try {
+            ByteBuffer keyBuff = ByteBuffer.allocateDirect(8).order(ByteOrder.nativeOrder());
+            UnsafeUtil.memPutLong(UnsafeUtil.memAddress(keyBuff), Long.reverseBytes(swizzlePos(key)));
             this.db.put(this.worldSections, this.sectionWriteOps, keyBuff, data.asByteBuffer());
         } catch (RocksDBException e) {
             throw new RuntimeException(e);
@@ -185,8 +184,7 @@ public class RocksDBStorageBackend extends StorageBackend {
             data.get(buffer);
             data.rewind();
             this.db.put(this.idMappings, intToBytes(id), buffer);
-        } catch (
-                RocksDBException e) {
+        } catch (RocksDBException e) {
             throw new RuntimeException(e);
         }
     }
@@ -217,16 +215,18 @@ public class RocksDBStorageBackend extends StorageBackend {
     }
 
     private static byte[] intToBytes(int i) {
-        return new byte[] {(byte)(i>>24), (byte)(i>>16), (byte)(i>>8), (byte) i};
+        return new byte[] { (byte) (i >> 24), (byte) (i >> 16), (byte) (i >> 8), (byte) i };
     }
+
     private static int bytesToInt(byte[] i) {
-        return (Byte.toUnsignedInt(i[0])<<24)|(Byte.toUnsignedInt(i[1])<<16)|(Byte.toUnsignedInt(i[2])<<8)|(Byte.toUnsignedInt(i[3]));
+        return (Byte.toUnsignedInt(i[0]) << 24) | (Byte.toUnsignedInt(i[1]) << 16) | (Byte.toUnsignedInt(i[2]) << 8)
+                | (Byte.toUnsignedInt(i[3]));
     }
 
     private static byte[] longToBytes(long l) {
         byte[] result = new byte[Long.BYTES];
         for (int i = Long.BYTES - 1; i >= 0; i--) {
-            result[i] = (byte)(l & 0xFF);
+            result[i] = (byte) (l & 0xFF);
             l >>= Byte.SIZE;
         }
         return result;
@@ -256,10 +256,14 @@ public class RocksDBStorageBackend extends StorageBackend {
         if (true) {
             return key;
         }
-        if (WorldEngine.POS_FORMAT_VERSION != 1) throw new IllegalStateException("TODO: UPDATE THIS");
-        return  (key&(0xFL<<60)) |
-                Long.expand((key>>> 4)&((1L<<24)-1), 0b01010101010101010101010101010101_001001001001001001001001L) |
-                Long.expand((key>>>52)&0xFF,         0b00000000000000000000000000000000_100100100100100100100100L) |
-                Long.expand((key>>>28)&((1L<<24)-1), 0b10101010101010101010101010101010_010010010010010010010010L);
+        if (WorldEngine.POS_FORMAT_VERSION != 1)
+            throw new IllegalStateException("TODO: UPDATE THIS");
+        return (key & (0xFL << 60)) |
+                Long.expand((key >>> 4) & ((1L << 24) - 1),
+                        0b01010101010101010101010101010101_001001001001001001001001L)
+                |
+                Long.expand((key >>> 52) & 0xFF, 0b00000000000000000000000000000000_100100100100100100100100L) |
+                Long.expand((key >>> 28) & ((1L << 24) - 1),
+                        0b10101010101010101010101010101010_010010010010010010010010L);
     }
 }

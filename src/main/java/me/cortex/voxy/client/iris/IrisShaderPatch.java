@@ -9,6 +9,7 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectLinkedOpenHashMap;
 import me.cortex.voxy.common.Logger;
 import net.irisshaders.iris.shaderpack.ShaderPack;
 import net.irisshaders.iris.shaderpack.include.AbsolutePackPath;
+import org.apache.commons.logging.Log;
 import org.lwjgl.opengl.ARBDrawBuffersBlend;
 
 import java.lang.reflect.Modifier;
@@ -21,16 +22,18 @@ import static org.lwjgl.opengl.GL11.*;
 import static org.lwjgl.opengl.GL33.*;
 
 public class IrisShaderPatch {
-    public static final int VERSION = ((IntSupplier)()->1).getAsInt();
+    public static final int VERSION = ((IntSupplier) () -> 1).getAsInt();
 
-    public static final boolean IMPERSONATE_DISTANT_HORIZONS = System.getProperty("voxy.impersonateDHShader", "false").equalsIgnoreCase("true");
-
+    public static final boolean IMPERSONATE_DISTANT_HORIZONS = System.getProperty("voxy.impersonateDHShader", "false")
+            .equalsIgnoreCase("true");
 
     private static final class SSBODeserializer implements JsonDeserializer<Int2ObjectOpenHashMap<String>> {
         @Override
-        public Int2ObjectOpenHashMap<String> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
+        public Int2ObjectOpenHashMap<String> deserialize(JsonElement json, Type typeOfT,
+                JsonDeserializationContext context) throws JsonParseException {
             Int2ObjectOpenHashMap<String> ret = new Int2ObjectOpenHashMap<>();
-            if (json==null) return null;
+            if (json == null)
+                return null;
             try {
                 for (var entry : json.getAsJsonObject().entrySet()) {
                     ret.put(Integer.parseInt(entry.getKey()), entry.getValue().getAsString());
@@ -41,11 +44,15 @@ public class IrisShaderPatch {
             return ret;
         }
     }
-    private static final class SamplerDeserializer implements JsonDeserializer<Object2ObjectLinkedOpenHashMap<String, String>> {
+
+    private static final class SamplerDeserializer
+            implements JsonDeserializer<Object2ObjectLinkedOpenHashMap<String, String>> {
         @Override
-        public Object2ObjectLinkedOpenHashMap<String, String> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
+        public Object2ObjectLinkedOpenHashMap<String, String> deserialize(JsonElement json, Type typeOfT,
+                JsonDeserializationContext context) throws JsonParseException {
             Object2ObjectLinkedOpenHashMap<String, String> ret = new Object2ObjectLinkedOpenHashMap<>();
-            if (json==null) return null;
+            if (json == null)
+                return null;
             try {
                 if (json.isJsonArray()) {
                     for (var entry : json.getAsJsonArray()) {
@@ -77,15 +84,14 @@ public class IrisShaderPatch {
     }
 
     public record BlendState(int buffer, boolean off, int sRGB, int dRGB, int sA, int dA) {
-        public static BlendState ALL_OFF = new BlendState(-1, true, 0,0,0,0);
+        public static BlendState ALL_OFF = new BlendState(-1, true, 0, 0, 0, 0);
     }
-
 
     private static final class BlendStateDeserializer implements JsonDeserializer<Int2ObjectMap<BlendState>> {
         private static int parseType(String type) {
             type = type.toUpperCase();
             if (!type.startsWith("GL_")) {
-                type = "GL_"+type;
+                type = "GL_" + type;
             }
             return switch (type) {
                 case "GL_ZERO" -> GL_ZERO;
@@ -108,9 +114,12 @@ public class IrisShaderPatch {
                 }
             };
         }
+
         @Override
-        public Int2ObjectMap<BlendState> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) throws JsonParseException {
-            if (json==null) return null;
+        public Int2ObjectMap<BlendState> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context)
+                throws JsonParseException {
+            if (json == null)
+                return null;
             Int2ObjectMap<BlendState> ret = new Int2ObjectOpenHashMap<>();
             try {
                 if (json.isJsonPrimitive()) {
@@ -129,7 +138,7 @@ public class IrisShaderPatch {
                         } else if (val.isJsonPrimitive()) {
                             var str = val.getAsString();
                             if (str.equalsIgnoreCase("off")) {
-                                state = new BlendState(buffer, true, 0,0,0,0);
+                                state = new BlendState(buffer, true, 0, 0, 0, 0);
                             } else {
                                 var parts = str.split(" ");
                                 if (parts.length < 4) {
@@ -139,7 +148,7 @@ public class IrisShaderPatch {
                                 }
                             }
                         } else {
-                            Logger.error("Unknown blend state "+val);
+                            Logger.error("Unknown blend state " + val);
                             state = null;
                         }
                         if (bs != null) {
@@ -159,7 +168,7 @@ public class IrisShaderPatch {
     }
 
     private static class PatchGson {
-        public int version;//TODO maybe replace with semver?
+        public int version;// TODO maybe replace with semver?
         public int[] opaqueDrawBuffers;
         public int[] translucentDrawBuffers;
         public String[] uniforms;
@@ -175,16 +184,18 @@ public class IrisShaderPatch {
         public boolean excludeLodsFromVanillaDepth;
         public float[] renderScale;
         public boolean useViewportDims;
-        //public boolean deferTranslucentRendering;
+
         public String checkValid() {
             if (this.blending != null) {
                 int i = 0;
                 for (BlendState state : this.blending.values()) {
-                    if (state.buffer != -1 && (state.buffer<0||this.translucentDrawBuffers.length<=state.buffer)) {
-                        if (state.buffer<0) {
+                    if (state.buffer != -1
+                            && (state.buffer < 0 || this.translucentDrawBuffers.length <= state.buffer)) {
+                        if (state.buffer < 0) {
                             return "Blending buffer is <0 at index: " + i;
                         } else {
-                            return "Blending buffer index out of bounds at "+i+" was "+state.buffer+" maximum is " +(this.translucentDrawBuffers.length-1);
+                            return "Blending buffer index out of bounds at " + i + " was " + state.buffer
+                                    + " maximum is " + (this.translucentDrawBuffers.length - 1);
                         }
                     }
                     i++;
@@ -206,11 +217,10 @@ public class IrisShaderPatch {
         }
     }
 
-
-
     private final PatchGson patchData;
     private final ShaderPack pack;
     private final Int2ObjectMap<String> ssbos;
+
     private IrisShaderPatch(PatchGson patchData, ShaderPack pack) {
         this.patchData = patchData;
         this.pack = pack;
@@ -229,22 +239,26 @@ public class IrisShaderPatch {
     public Int2ObjectMap<String> getSSBOs() {
         return new Int2ObjectLinkedOpenHashMap<>(this.ssbos);
     }
+
     public String getPatchOpaqueSource() {
         return this.patchData.opaquePatchData;
     }
+
     public String getPatchTranslucentSource() {
         return this.patchData.translucentPatchData;
     }
+
     public String getTAAShift() {
-        return this.patchData.taaOffset == null?"{return vec2(0.0);}":this.patchData.taaOffset;
+        return this.patchData.taaOffset == null ? "{return vec2(0.0);}" : this.patchData.taaOffset;
     }
+
     public String[] getUniformList() {
         return this.patchData.uniforms;
     }
+
     public Object2ObjectLinkedOpenHashMap<String, String> getSamplerSet() {
         return this.patchData.samplers;
     }
-
 
     public int[] getOpqaueTargets() {
         return this.patchData.opaqueDrawBuffers;
@@ -259,26 +273,24 @@ public class IrisShaderPatch {
     }
 
     public float[] getRenderScale() {
-        if (this.patchData.renderScale == null || this.patchData.renderScale.length==0) {
-            return new float[]{1,1};
+        if (this.patchData.renderScale == null || this.patchData.renderScale.length == 0) {
+            return new float[] { 1, 1 };
         }
         if (this.patchData.renderScale.length == 1) {
-            return new float[]{this.patchData.renderScale[0],this.patchData.renderScale[0]};
+            return new float[] { this.patchData.renderScale[0], this.patchData.renderScale[0] };
         }
-        return new float[]{Math.max(0.01f,this.patchData.renderScale[0]),Math.max(0.01f,this.patchData.renderScale[1])};
-    }
-
-    public boolean deferedTranslucentRendering() {
-        return false;//this.patchData.deferTranslucentRendering;
+        return new float[] { Math.max(0.01f, this.patchData.renderScale[0]),
+                Math.max(0.01f, this.patchData.renderScale[1]) };
     }
 
     public Runnable createBlendSetup() {
         if (this.patchData.blending == null || this.patchData.blending.isEmpty()) {
-            return ()->{};//No blending change
+            return () -> {
+            };// No blending change
         }
-        return ()->{
+        return () -> {
             final var BS = this.patchData.blending;
-            //Set inital state
+            // Set inital state
             var init = BS.getOrDefault(-1, null);
             if (init != null) {
                 if (init.off) {
@@ -288,14 +300,15 @@ public class IrisShaderPatch {
                     glBlendFuncSeparate(init.sRGB, init.dRGB, init.sA, init.dA);
                 }
             }
-            for (var entry:BS.int2ObjectEntrySet()) {
-                if (entry.getIntKey() == -1) continue;
+            for (var entry : BS.int2ObjectEntrySet()) {
+                if (entry.getIntKey() == -1)
+                    continue;
                 final var s = entry.getValue();
                 if (s.off) {
                     glDisablei(GL_BLEND, s.buffer);
                 } else {
                     glEnablei(GL_BLEND, s.buffer);
-                    //_sigh_ thanks nvidia
+                    // _sigh_ thanks nvidia
                     ARBDrawBuffersBlend.glBlendFuncSeparateiARB(s.buffer, s.sRGB, s.dRGB, s.sA, s.dA);
                 }
             }
@@ -304,34 +317,37 @@ public class IrisShaderPatch {
 
     private static final Gson GSON = new GsonBuilder()
             .excludeFieldsWithModifiers(Modifier.PRIVATE)
-            .setStrictness(Strictness.LENIENT)
+            .setLenient()
             .create();
 
-    public static IrisShaderPatch makePatch(ShaderPack ipack, AbsolutePackPath directory, Function<AbsolutePackPath, String> sourceProvider) {
+    public static IrisShaderPatch makePatch(ShaderPack ipack, AbsolutePackPath directory,
+            Function<AbsolutePackPath, String> sourceProvider) {
         String voxyPatchData = sourceProvider.apply(directory.resolve("voxy.json"));
-        if (voxyPatchData == null) {//No voxy patch data in shaderpack
+        if (voxyPatchData == null) {// No voxy patch data in shaderpack
             return null;
         }
 
-        //A more graceful exit on blank string
+        // A more graceful exit on blank string
         if (voxyPatchData.isBlank()) {
             return null;
         }
 
-        //Escape things
+        // Escape things
         voxyPatchData = voxyPatchData.replace("\\", "\\\\");
 
         PatchGson patchData = null;
         try {
-            //TODO: basicly find any "commented out" quotation marks and escape them (if the line, when stripped starts with a // or /* then escape all quotation marks in that line)
+            // TODO: basicly find any "commented out" quotation marks and escape them (if
+            // the line, when stripped starts with a // or /* then escape all quotation
+            // marks in that line)
             {
                 StringBuilder builder = new StringBuilder(voxyPatchData.length());
-                //Rebuild the patch, replacing commented out " with \"
+                // Rebuild the patch, replacing commented out " with \"
                 for (var line : voxyPatchData.split("\n")) {
                     int idx = line.indexOf("//");
                     if (idx != -1) {
                         builder.append(line, 0, idx);
-                        builder.append(line.substring(idx).replace("\"","\\\""));
+                        builder.append(line.substring(idx).replace("\"", "\\\""));
                     } else {
                         builder.append(line);
                     }
@@ -341,10 +357,11 @@ public class IrisShaderPatch {
             }
             patchData = GSON.fromJson(voxyPatchData, PatchGson.class);
             if (patchData == null) {
-                throw new IllegalStateException("Voxy patch json returned null, this is most likely due to malformed json file");
+                throw new IllegalStateException(
+                        "Voxy patch json returned null, this is most likely due to malformed json file");
             }
 
-            {//Inject data from the auxilery files if they are present
+            {// Inject data from the auxilery files if they are present
                 var opaque = sourceProvider.apply(directory.resolve("voxy_opaque.glsl"));
                 if (opaque != null) {
                     Logger.info("External opaque shader patch applied");
@@ -355,7 +372,7 @@ public class IrisShaderPatch {
                     Logger.info("External translucent shader patch applied");
                     patchData.translucentPatchData = translucent;
                 }
-                //This might be ok? not.. sure if is nice or not
+                // This might be ok? not.. sure if is nice or not
                 var taa = sourceProvider.apply(directory.resolve("voxy_taa.glsl"));
                 if (taa != null) {
                     Logger.info("External taa shader patch applied");
@@ -364,20 +381,22 @@ public class IrisShaderPatch {
             }
 
             var invalidPatchDataReason = patchData.checkValid();
-            if (invalidPatchDataReason!=null) {
+            if (invalidPatchDataReason != null) {
                 throw new IllegalStateException("voxy json patch not valid: " + invalidPatchDataReason);
             }
         } catch (Exception e) {
             patchData = null;
-            Logger.error("Failed to parse patch data gson",e);
-            throw new ShaderLoadError("Failed to parse patch data gson",e);
+            Logger.error("Failed to parse patch data gson", e);
+            throw new ShaderLoadError("Failed to parse patch data gson", e);
         }
         if (patchData == null) {
             return null;
         }
         if (patchData.version != VERSION) {
-            Logger.error("Shader has voxy patch data, but patch version is incorrect. expected " + VERSION + " got "+patchData.version);
-            throw new IllegalStateException("Shader version mismatch expected " + VERSION + " got "+patchData.version);
+            Logger.error("Shader has voxy patch data, but patch version is incorrect. expected " + VERSION + " got "
+                    + patchData.version);
+            throw new IllegalStateException(
+                    "Shader version mismatch expected " + VERSION + " got " + patchData.version);
         }
         return new IrisShaderPatch(patchData, ipack);
     }

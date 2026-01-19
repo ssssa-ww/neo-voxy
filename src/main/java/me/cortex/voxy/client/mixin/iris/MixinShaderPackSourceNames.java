@@ -10,7 +10,8 @@ import org.spongepowered.asm.mixin.injection.At;
 @Mixin(value = ShaderPackSourceNames.class, remap = false)
 public class MixinShaderPackSourceNames {
     @WrapOperation(method = "findPotentialStarts", at = @At(value = "INVOKE", target = "Lcom/google/common/collect/ImmutableList;builder()Lcom/google/common/collect/ImmutableList$Builder;"))
-    private static ImmutableList.Builder<String> voxy$injectVoxyShaderPatch(Operation<ImmutableList.Builder<String>> original){
+    private static ImmutableList.Builder<String> voxy$injectVoxyShaderPatch(
+            Operation<ImmutableList.Builder<String>> original) {
         var builder = original.call();
         builder.add("voxy.json");
         builder.add("voxy_opaque.glsl");

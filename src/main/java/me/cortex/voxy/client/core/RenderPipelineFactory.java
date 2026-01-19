@@ -12,8 +12,10 @@ import net.irisshaders.iris.api.v0.IrisApi;
 import java.util.function.BooleanSupplier;
 
 public class RenderPipelineFactory {
-    public static AbstractRenderPipeline createPipeline(AsyncNodeManager nodeManager, NodeCleaner nodeCleaner, HierarchicalOcclusionTraverser traversal, BooleanSupplier frexSupplier) {
-        //Note this is where will choose/create e.g. IrisRenderPipeline or normal pipeline
+    public static AbstractRenderPipeline createPipeline(AsyncNodeManager nodeManager, NodeCleaner nodeCleaner,
+            HierarchicalOcclusionTraverser traversal, BooleanSupplier frexSupplier) {
+        // Note this is where will choose/create e.g. IrisRenderPipeline or normal
+        // pipeline
         AbstractRenderPipeline pipeline = null;
         if (IrisUtil.IRIS_INSTALLED && IrisUtil.SHADER_SUPPORT) {
             pipeline = createIrisPipeline(nodeManager, nodeCleaner, traversal, frexSupplier);
@@ -24,7 +26,8 @@ public class RenderPipelineFactory {
         return pipeline;
     }
 
-    private static AbstractRenderPipeline createIrisPipeline(AsyncNodeManager nodeManager, NodeCleaner nodeCleaner, HierarchicalOcclusionTraverser traversal, BooleanSupplier frexSupplier) {
+    private static AbstractRenderPipeline createIrisPipeline(AsyncNodeManager nodeManager, NodeCleaner nodeCleaner,
+            HierarchicalOcclusionTraverser traversal, BooleanSupplier frexSupplier) {
         var irisPipe = Iris.getPipelineManager().getPipelineNullable();
         if (irisPipe == null) {
             return null;

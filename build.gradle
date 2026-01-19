@@ -1,9 +1,8 @@
 plugins {
-    id 'fabric-loom' version "1.14-SNAPSHOT"
+    id 'dev.architectury.loom' version '1.7-SNAPSHOT'
     id 'maven-publish'
+    id "com.github.johnrengelman.shadow" version "8.1.1"
 }
-
-def isInGHA = System.getenv("GITHUB_ACTIONS") == "true"
 
 version = project.mod_version
 group = project.maven_group
@@ -24,72 +23,15 @@ repositories {
             includeGroup "maven.modrinth"
         }
     }
-
-    exclusiveContent {
-        forRepository {
-            maven {
-                name "caffeinemcRepository"
-                url "https://maven.caffeinemc.net/snapshots"
-            }
-        }
-        filter {
-            includeGroup "net.caffeinemc"
-        }
-    }
-
-
-
-    maven { url = "https://maven.shedaniel.me/" }
-    maven { url = "https://maven.terraformersmc.com/releases/" }
-
-    exclusiveContent {
-        forRepository {
-            ivy {
-                name = "github"
-                url = "https://github.com/"
-                patternLayout {
-                    artifact '/[organisation]/[module]/releases/download/[revision]/[module]-[revision]-[classifier].[ext]'
-                }
-                metadataSources {
-                    artifact()
-                }
-            }
-        }
-        filter {
-            includeModuleByRegex("[^\\.]+", "nvidium")
-        }
-    }
+    maven { url "https://maven.shedaniel.me/" }
+    maven { url "https://maven.terraformersmc.com/releases/" }
+    maven { url "https://maven.neoforged.net/releases" }
 }
-
-
-def gitCommitHash = { ->
-    try {
-        ExecOutput result = providers.exec {
-            commandLine = ['git', 'rev-parse', '--short', 'HEAD']
-            ignoreExitValue = true
-        }
-
-        if (result.getResult().get().getExitValue() != 0) {
-            return "<UnknownCommit>";
-        } else {
-            return result.standardOutput.asText.get().strip();
-        }
-    } catch (Exception e) {
-        e.printStackTrace()
-        return "<UnknownCommit>";
-    }
-}
-
-def buildtime = {System.currentTimeSeconds()}
 
 processResources {
-    def time = buildtime()
-    def hash = gitCommitHash()
-    def version = project.version
-
-    inputs.properties("version": version, "commit": hash, "buildtime": time)
-    filesMatching("fabric.mod.json") {
-        expand "version": version, "commit": hash, "buildtime": time
+    inputs.property "version", project.version
+    filesMatching("META-INF/neoforge.mods.toml") {
+        expand "version": project.version
     }
 }
 
@@ -97,64 +39,12 @@ loom {
     accessWidenerPath = file("src/main/resources/voxy.accesswidener")
 }
 
-def modRuntimeOnlyMsk = {arg->}
-if (!isInGHA) {
-    modRuntimeOnlyMsk = { arg ->
-        dependencies {
-            modRuntimeOnly(arg)
-        }
+configurations {
+    bundle {
+        canBeResolved = true
+        canBeConsumed = false
     }
 }
-
-dependencies {
-    // To change the versions see the gradle.properties file
-    minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings loom.officialMojangMappings()
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-
-
-    modRuntimeOnlyMsk(fabricApi.module("fabric-api-base", project.fabric_version))
-    modRuntimeOnlyMsk(fabricApi.module("fabric-rendering-fluids-v1", project.fabric_version))
-    modRuntimeOnlyMsk(fabricApi.module("fabric-resource-loader-v0", project.fabric_version))
-    modRuntimeOnlyMsk(fabricApi.module("fabric-command-api-v2", project.fabric_version))
-
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-
-    if (true) {
-        modImplementation "maven.modrinth:sodium:mc1.21.11-0.8.2-fabric"
-    } else {
-        modImplementation "net.caffeinemc:sodium-fabric:0.8.2-SNAPSHOT+mc1.21.11+"
-    }
-
-    modImplementation("maven.modrinth:lithium:mc1.21.11-0.21.0-fabric")
-
-    //modRuntimeOnlyMsk "drouarb:nvidium:0.4.1-beta4:1.21.6@jar"
-    modCompileOnly "drouarb:nvidium:0.4.1-beta4:1.21.6@jar"
-
-    modCompileOnly("maven.modrinth:modmenu:17.0.0-alpha.1")
-    modRuntimeOnlyMsk("maven.modrinth:modmenu:17.0.0-alpha.1")
-
-    modCompileOnly("maven.modrinth:iris:1.10.4+1.21.11-fabric")
-    modRuntimeOnlyMsk("maven.modrinth:iris:1.10.4+1.21.11-fabric")
-
-    //modCompileOnly("maven.modrinth:starlight:1.1.3+1.20.4")
-
-    //modCompileOnly("maven.modrinth:immersiveportals:v5.1.7-mc1.20.4")
-
-    modCompileOnly("maven.modrinth:chunky:1.4.54-fabric")
-    //modRuntimeOnlyMsk("maven.modrinth:chunky:1.4.40-fabric")
-
-    modRuntimeOnlyMsk("maven.modrinth:spark:1.10.152-fabric")
-    modRuntimeOnlyMsk("maven.modrinth:fabric-permissions-api:0.3.3")
-    //modRuntimeOnly("maven.modrinth:nsight-loader:1.2.0")
-
-    //modImplementation('io.github.douira:glsl-transformer:2.0.1')
-
-    modCompileOnly("maven.modrinth:vivecraft:1.21.9-1.3.2-fabric")
-
-    modCompileOnly("maven.modrinth:flashback:rNCr1Rbs")
-}
-
 
 def targetJavaVersion = 21
 tasks.withType(JavaCompile).configureEach {
@@ -168,67 +58,40 @@ java {
     if (JavaVersion.current() < javaVersion) {
         toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
     }
+}
 
-    // Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
-    // if it is present.
-    // If you remove this line, sources will not be generated.
+dependencies {
+    // Minecraft and mappings
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings loom.officialMojangMappings()
+    neoForge "net.neoforged:neoforge:${project.neoforge_version}"
 
+    // Sodium for NeoForge (required dependency)
+    modCompileOnly "maven.modrinth:sodium:mc1.21.1-0.6.13-neoforge"
+    modRuntimeOnly "maven.modrinth:sodium:mc1.21.1-0.6.13-neoforge"
 
-    //withSourcesJar()
+    // Optional: Iris shaders support
+    modCompileOnly("maven.modrinth:iris:1.8.0+1.21.1-neoforge")
+
+    // Optional: Nvidium support
+    //modCompileOnly "maven.modrinth:nvidium:0.3.0-beta"
+}
+
+shadowJar {
+    exclude "fabric.mod.json"
+    configurations = [project.configurations.bundle]
+    archiveClassifier.set("dev-shadow")
+}
+
+remapJar {
+    input.set shadowJar.archiveFile
+    dependsOn shadowJar
+    atAccessWideners.add('voxy.accesswidener')
 }
 
 jar {
     from("LICENSE") {
-        rename { "${it}_${project.archives_base_name}"}
-    }
-}
-
-
-
-tasks.register('makeExcludedRocksDB', Zip) {
-    archiveExtension.set("jar")
-    entryCompression = ZipEntryCompression.STORED
-    destinationDirectory.set temporaryDir
-
-    dependsOn configurations.includeInternal
-
-    def files = configurations.includeInternal.incoming.getArtifacts().getArtifactFiles().filter {
-        it.name.startsWith('rocksdb')
-    }
-    
-    from {->zipTree(files.first())}
-    archiveFileName.set(providers.provider{files.first().name})
-
-    exclude {
-        def file = it.name
-        if (file.endsWith(".jnilib")) {
-            return true
-        }
-        if (!file.endsWith(".so")) {
-            return false
-        }
-        return ["osx", "linux32", "musl", "s390x", "riscv64", "ppc64le", "aarch64"].any(file::contains)
-    }
-}
-
-processIncludeJars {
-    outputs.cacheIf {true}
-
-    dependsOn makeExcludedRocksDB
-    jars = jars.filter {!it.name.startsWith('rocksdb')}
-    jars.from(makeExcludedRocksDB)
-}
-
-remapJar {
-    doFirst {
-        delete fileTree(getDestinationDirectory().get())
-    }
-
-    if (!isInGHA) {
-        def hash = gitCommitHash();
-        if (!hash.equals("<UnknownCommit>")) {
-            archiveClassifier.set(hash);
-        }
+        rename { "${it}_${project.base.archivesName.get()}" }
     }
 }
 
@@ -239,47 +102,32 @@ repositories {
     mavenCentral()
 }
 
-
 dependencies {
     implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
 
     implementation "org.lwjgl:lwjgl"
-    include(implementation "org.lwjgl:lwjgl-lmdb")
-    include(implementation "org.lwjgl:lwjgl-zstd")
-    runtimeOnly "org.lwjgl:lwjgl:$lwjglVersion:natives-windows"
-    runtimeOnly "org.lwjgl:lwjgl:$lwjglVersion:natives-linux"
-    include(runtimeOnly "org.lwjgl:lwjgl-lmdb:$lwjglVersion:natives-windows")
-    include(runtimeOnly "org.lwjgl:lwjgl-zstd:$lwjglVersion:natives-windows")
-    include(runtimeOnly "org.lwjgl:lwjgl-lmdb:$lwjglVersion:natives-linux")
-    include(runtimeOnly "org.lwjgl:lwjgl-zstd:$lwjglVersion:natives-linux")
+    forgeRuntimeLibrary "org.lwjgl:lwjgl"
+    bundle(implementation("org.lwjgl:lwjgl-lmdb")) { transitive = false }
+    forgeRuntimeLibrary "org.lwjgl:lwjgl-lmdb"
+    bundle(implementation("org.lwjgl:lwjgl-zstd")) { transitive = false }
+    forgeRuntimeLibrary "org.lwjgl:lwjgl-zstd"
 
-    include(implementation 'redis.clients:jedis:5.1.0')
-    include(implementation('org.rocksdb:rocksdbjni:10.2.1'))
-    include(implementation 'org.apache.commons:commons-pool2:2.12.0')
-    include(implementation 'org.lz4:lz4-java:1.8.0')
-    include(implementation('org.tukaani:xz:1.10'))
+    forgeRuntimeLibrary "org.lwjgl:lwjgl:$lwjglVersion:natives-windows"
+    forgeRuntimeLibrary "org.lwjgl:lwjgl:$lwjglVersion:natives-linux"
+    bundle(forgeRuntimeLibrary("org.lwjgl:lwjgl-lmdb:$lwjglVersion:natives-windows")) { transitive = false }
+    bundle(forgeRuntimeLibrary("org.lwjgl:lwjgl-zstd:$lwjglVersion:natives-windows")) { transitive = false }
+    bundle(forgeRuntimeLibrary("org.lwjgl:lwjgl-lmdb:$lwjglVersion:natives-linux")) { transitive = false }
+    bundle(forgeRuntimeLibrary("org.lwjgl:lwjgl-zstd:$lwjglVersion:natives-linux")) { transitive = false }
 
-    if (true) {
-        if (!isInGHA) {
-            minecraftRuntimeLibraries('org.xerial:sqlite-jdbc:3.49.1.0')
-        }
-    } else {
-        include(implementation('org.xerial:sqlite-jdbc:3.49.1.0'))
-    }
-    //implementation 'org.rocksdb:rocksdbjni:8.10.0'
-    //implementation 'redis.clients:jedis:5.1.0'
-}
-
-if (!isInGHA) {
-    repositories {
-        maven {
-            url = "https://pkgs.dev.azure.com/djtheredstoner/DevAuth/_packaging/public/maven/v1"
-        }
-    }
-
-    dependencies {
-        modRuntimeOnly('me.djtheredstoner:DevAuth-fabric:1.2.2') {
-            exclude group: 'net.fabricmc', module: 'fabric-loader'
-        }
-    }
+    // Storage backends
+    bundle(implementation('org.rocksdb:rocksdbjni:8.10.0')) { transitive = false }
+    forgeRuntimeLibrary 'org.rocksdb:rocksdbjni:8.10.0'
+    bundle(implementation('redis.clients:jedis:5.1.0')) { transitive = false }
+    forgeRuntimeLibrary 'redis.clients:jedis:5.1.0'
+    bundle(implementation('org.apache.commons:commons-pool2:2.12.0')) { transitive = false }
+    forgeRuntimeLibrary 'org.apache.commons:commons-pool2:2.12.0'
+    // LZ4 is provided by Minecraft/NeoForge, do not bundle
+    compileOnly 'org.lz4:lz4-java:1.8.0'
+    bundle(implementation('org.tukaani:xz:1.10')) { transitive = false }
+    forgeRuntimeLibrary 'org.tukaani:xz:1.10'
 }

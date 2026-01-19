@@ -21,28 +21,32 @@ import java.util.function.Function;
 
 @Mixin(value = ProgramSet.class, remap = false)
 public class MixinProgramSet implements IGetVoxyPatchData {
-    @Shadow @Final private PackDirectives packDirectives;
-    @Unique IrisShaderPatch patchData;
+    @Shadow
+    @Final
+    private PackDirectives packDirectives;
+    @Unique
+    IrisShaderPatch patchData;
 
     @Inject(method = "<init>", at = @At(value = "INVOKE", target = "Lnet/irisshaders/iris/shaderpack/programs/ProgramSet;locateDirectives()V", shift = At.Shift.BEFORE))
-    private void voxy$injectPatchMaker(AbsolutePackPath directory, Function<AbsolutePackPath, String> sourceProvider, ShaderProperties shaderProperties, ShaderPack pack, CallbackInfo ci) {
+    private void voxy$injectPatchMaker(AbsolutePackPath directory, Function<AbsolutePackPath, String> sourceProvider,
+            ShaderProperties shaderProperties, ShaderPack pack, CallbackInfo ci) {
         if (VoxyConfig.CONFIG.isRenderingEnabled() && IrisUtil.SHADER_SUPPORT) {
             this.patchData = IrisShaderPatch.makePatch(pack, directory, sourceProvider);
         }
         /*
-        if (this.patchData != null) {
-            //Inject directives from voxy
-            DispatchingDirectiveHolder ddh = new DispatchingDirectiveHolder();
-            this.packDirectives.acceptDirectivesFrom(ddh);
-            CommentDirectiveParser.findDirective(this.patchData.getPatchSource(), CommentDirective.Type.RENDERTARGETS)
-                    .map(dir->Arrays.stream(dir.getDirective().split(","))
-                            .mapToInt(Integer::parseInt).toArray())
-                    .ifPresent(ddh::processDirective);
-
-        }
+         * if (this.patchData != null) {
+         * //Inject directives from voxy
+         * DispatchingDirectiveHolder ddh = new DispatchingDirectiveHolder();
+         * this.packDirectives.acceptDirectivesFrom(ddh);
+         * CommentDirectiveParser.findDirective(this.patchData.getPatchSource(),
+         * CommentDirective.Type.RENDERTARGETS)
+         * .map(dir->Arrays.stream(dir.getDirective().split(","))
+         * .mapToInt(Integer::parseInt).toArray())
+         * .ifPresent(ddh::processDirective);
+         * 
+         * }
          */
     }
-
 
     @Override
     public IrisShaderPatch voxy$getPatchData() {

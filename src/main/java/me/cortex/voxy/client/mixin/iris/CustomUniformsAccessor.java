@@ -10,5 +10,6 @@ import java.util.Map;
 
 @Mixin(value = CustomUniforms.class, remap = false)
 public interface CustomUniformsAccessor {
-    @Accessor Map<Object, Object2IntMap<CachedUniform>> getLocationMap();
+    @Accessor
+    Map<Object, Object2IntMap<CachedUniform>> getLocationMap();
 }

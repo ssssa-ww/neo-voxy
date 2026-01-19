@@ -6,7 +6,7 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.util.MultiGson;
-import net.fabricmc.loader.api.FabricLoader;
+import me.cortex.voxy.common.util.ModLoaderUtil;
 
 import java.io.IOException;
 import java.lang.reflect.Modifier;
@@ -33,7 +33,7 @@ public class VoxyConfigStore {
             @Override
             public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> typeToken) {
                 if (defaultValueMap.containsKey(typeToken.getRawType())) {
-                    var defVal = (T)defaultValueMap.get(typeToken.getRawType());
+                    var defVal = (T) defaultValueMap.get(typeToken.getRawType());
                     var adapter = gson.getDelegateAdapter(this, typeToken);
                     return new TypeAdapter<T>() {
                         @Override
@@ -53,7 +53,7 @@ public class VoxyConfigStore {
                         @Override
                         public T read(JsonReader reader) throws IOException {
                             var defJson = adapter.toJsonTree(defVal).getAsJsonObject();
-                            var val = ((JsonElement)gson.fromJson(reader, JsonElement.class)).getAsJsonObject();
+                            var val = ((JsonElement) gson.fromJson(reader, JsonElement.class)).getAsJsonObject();
                             for (var key : defJson.keySet()) {
                                 if (val.has(key)) {
                                     if (val.get(key).equals(new JsonPrimitive("DEFAULT_VALUE"))) {
@@ -72,33 +72,33 @@ public class VoxyConfigStore {
     }
 
     /*
-    private static void loadOrCreate() {
-        if (VoxyCommon.isAvailable()) {
-            var path = getConfigPath();
-            if (Files.exists(path)) {
-                try (FileReader reader = new FileReader(path.toFile())) {
-                    var conf = GSON.fromJson(reader, VoxyConfig.class);
-                    if (conf != null) {
-                        conf.save();
-                        return conf;
-                    } else {
-                        Logger.error("Failed to load voxy config, resetting");
-                    }
-                } catch (IOException e) {
-                    Logger.error("Could not parse config", e);
-                }
-            }
-            var config = new VoxyConfig();
-            config.save();
-            return config;
-        } else {
-            var config = new VoxyConfig();
-            config.enabled = false;
-            config.enableRendering = false;
-            return config;
-        }
-    }
-
+     * private static void loadOrCreate() {
+     * if (VoxyCommon.isAvailable()) {
+     * var path = getConfigPath();
+     * if (Files.exists(path)) {
+     * try (FileReader reader = new FileReader(path.toFile())) {
+     * var conf = GSON.fromJson(reader, VoxyConfig.class);
+     * if (conf != null) {
+     * conf.save();
+     * return conf;
+     * } else {
+     * Logger.error("Failed to load voxy config, resetting");
+     * }
+     * } catch (IOException e) {
+     * Logger.error("Could not parse config", e);
+     * }
+     * }
+     * var config = new VoxyConfig();
+     * config.save();
+     * return config;
+     * } else {
+     * var config = new VoxyConfig();
+     * config.enabled = false;
+     * config.enableRendering = false;
+     * return config;
+     * }
+     * }
+     * 
      */
 
     public void save() {
@@ -110,8 +110,7 @@ public class VoxyConfigStore {
     }
 
     private static Path getConfigPath() {
-        return FabricLoader.getInstance()
-                .getConfigDir()
+        return ModLoaderUtil.getConfigDir()
                 .resolve("voxy-config.json");
     }
 }
