@@ -10,8 +10,8 @@ Neo-Voxy is a NeoForge port of the Voxy mod, a far-distance rendering mod utiliz
 |---------|--------|
 | LOD Streaming | ⚡ Partially Working |
 | Server-to-Client Sync | ✅ Functional |
-| Block State Mapping | ⚠️ Some Issues |
-| Shader Support (Iris) | ⚠️ Expected to Work |
+| Block State Mapping | ⚠️ Some Issues - Block Faces (specifcally grass) recieved by server are black. |
+| Shader Support (Iris) | ❌ Shaders have been broken since LOD streaming was implemented |
 | Testing | ❌Not Done Rigorously|
 
 ### What Works
