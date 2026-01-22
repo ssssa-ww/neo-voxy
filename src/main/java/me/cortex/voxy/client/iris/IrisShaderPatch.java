@@ -230,6 +230,63 @@ public class IrisShaderPatch {
         } else {
             this.ssbos = patchData.ssbos;
         }
+
+        // Initialize samplers map if null
+        if (patchData.samplers == null) {
+            patchData.samplers = new Object2ObjectLinkedOpenHashMap<>();
+        }
+
+        // Add Voxy depth texture samplers.
+        // Do NOT use "!" prefix - Voxy builds its own shaders and doesn't process
+        // shaderpack #include directives, so we must generate GLSL declarations here.
+        // Runtime binding is handled by MixinIrisSamplers ->
+        // VoxySamplers.addSamplers().
+        patchData.samplers.putIfAbsent("vxDepthTexOpaque", "sampler2D");
+        patchData.samplers.putIfAbsent("vxDepthTexTrans", "sampler2D");
+
+        // Add Distant Horizons impersonation samplers if enabled
+        if (IMPERSONATE_DISTANT_HORIZONS) {
+            patchData.samplers.putIfAbsent("dhDepthTex", "sampler2D");
+            patchData.samplers.putIfAbsent("dhDepthTex0", "sampler2D");
+            patchData.samplers.putIfAbsent("dhDepthTex1", "sampler2D");
+        }
+
+        // Add Voxy-specific uniforms to the uniforms list so they can be declared in
+        // GLSL
+        if (patchData.uniforms != null) {
+            java.util.Set<String> existingUniforms = new java.util.HashSet<>(
+                    java.util.Arrays.asList(patchData.uniforms));
+            java.util.List<String> newUniforms = new java.util.ArrayList<>(java.util.Arrays.asList(patchData.uniforms));
+
+            // These uniforms are provided by VoxyUniforms.addUniforms() but need to be in
+            // the uniform list for the GLSL struct to be generated
+            String[] voxyUniforms = {
+                    "vxRenderDistance",
+                    "vxViewProj", "vxViewProjInv", "vxViewProjPrev",
+                    "vxModelView", "vxModelViewInv", "vxModelViewPrev",
+                    "vxProj", "vxProjInv", "vxProjPrev"
+            };
+            for (String uniform : voxyUniforms) {
+                if (!existingUniforms.contains(uniform)) {
+                    newUniforms.add(uniform);
+                }
+            }
+
+            // Add DH impersonation uniforms if enabled
+            if (IMPERSONATE_DISTANT_HORIZONS) {
+                String[] dhUniforms = {
+                        "dhNearPlane", "dhFarPlane", "dhRenderDistance",
+                        "dhProjection", "dhProjectionInverse", "dhPreviousProjection"
+                };
+                for (String uniform : dhUniforms) {
+                    if (!existingUniforms.contains(uniform)) {
+                        newUniforms.add(uniform);
+                    }
+                }
+            }
+
+            patchData.uniforms = newUniforms.toArray(new String[0]);
+        }
     }
 
     public boolean useViewportDims() {

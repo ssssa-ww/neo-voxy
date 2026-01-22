@@ -421,6 +421,9 @@ public class IrisVoxyRenderPipelineData {
             }
         };
         CommonUniforms.addDynamicUniforms(uniformBuilder, FogMode.PER_FRAGMENT);
+        // Note: VoxyUniforms.addUniforms() is called via MixinMatrixUniforms which
+        // injects
+        // into CommonUniforms.addNonDynamicUniforms(). Do NOT call it here as well!
         cu.assignTo(uniformBuilder);
         cu.mapholderToPass(uniformBuilder, patch);
 
@@ -501,7 +504,16 @@ public class IrisVoxyRenderPipelineData {
                     GlSampler sampler, String... names) {
                 if (!this.hasSampler(names))
                     return false;
-                samplerSet.add(new TextureWSampler(this.name(names), texture, sampler != null ? sampler.getId() : -1));
+                String name = this.name(names);
+                // Check if a sampler with this name already exists (deduplication)
+                // This is needed because TextureWSampler is a record and IntSupplier lambdas
+                // don't have proper equality, so the same sampler can be added multiple times
+                for (TextureWSampler existing : samplerSet) {
+                    if (existing.name().equals(name)) {
+                        return true; // Already exists, skip adding
+                    }
+                }
+                samplerSet.add(new TextureWSampler(name, texture, sampler != null ? sampler.getId() : -1));
                 return true;
             }
 
@@ -530,6 +542,12 @@ public class IrisVoxyRenderPipelineData {
         ipipe.addGbufferOrShadowSamplers(samplerBuilder, imageBuilder, ipipe::getFlippedAfterPrepare, false, true, true,
                 false);
 
+        // Note: VoxySamplers.addSamplers() is called via MixinIrisSamplers which
+        // injects into IrisSamplers.addRenderTargetSamplers(). This is called
+        // internally
+        // by addGbufferOrShadowSamplers(), so voxy samplers are already added to
+        // samplerSet.
+
         // samplerSet contains our samplers
         if (samplerSet.size() != samplerNameSet.size()) {
             Logger.error("Did not find all requested samplers. Found ["
@@ -541,13 +559,28 @@ public class IrisVoxyRenderPipelineData {
 
         StringBuilder builder = new StringBuilder();
         TextureWSampler[] samplers = new TextureWSampler[samplerSet.size()];
+
+        // BASE_SAMPLER_BINDING_INDEX is defined as 6 in
+        // IrisVoxyRenderPipeline.buildGenericShaderHeader()
+        // We compute the binding indices as constants to satisfy GLSL's requirement for
+        // constant layout values
+        final int BASE_SAMPLER_BINDING_INDEX = 6;
+
         int i = 0;
         for (var entry : samplerSet) {
             samplers[i] = entry;
 
             String samplerType = samplerDataSet.get(entry.name);
-            builder.append("layout(binding=(BASE_SAMPLER_BINDING_INDEX+").append(i).append(")) uniform ")
-                    .append(samplerType).append(" ").append(entry.name).append(";\n");
+
+            // If samplerType starts with "!", it means this sampler is already declared
+            // by the shaderpack's GLSL includes (e.g., lod_mod_support.glsl).
+            // Skip GLSL declaration generation but still bind the texture at runtime.
+            if (samplerType != null && !samplerType.startsWith("!")) {
+                // Use a constant binding index rather than a macro expression
+                int bindingIndex = BASE_SAMPLER_BINDING_INDEX + i;
+                builder.append("layout(binding=").append(bindingIndex).append(") uniform ")
+                        .append(samplerType).append(" ").append(entry.name).append(";\n");
+            }
             i++;
         }
 

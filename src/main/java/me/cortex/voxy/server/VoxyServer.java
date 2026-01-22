@@ -115,6 +115,7 @@ public class VoxyServer {
             case VoxyPacketPayload.MSG_SYNC_REQUEST -> handleSyncRequest(player);
             case VoxyPacketPayload.MSG_CACHE_RESPONSE -> handleCacheResponse(player, payload);
             case VoxyPacketPayload.MSG_RATE_UPDATE -> handleRateUpdate(player, payload);
+            case VoxyPacketPayload.MSG_REQUEST_SECTIONS -> handleSectionRequest(player, payload);
         }
     }
 
@@ -184,6 +185,38 @@ public class VoxyServer {
         if (service != null) {
             service.handleRateUpdate(player, payload);
         }
+    }
+
+    /**
+     * Handle section request from client (pull mode).
+     */
+    private static void handleSectionRequest(ServerPlayer player, VoxyPacketPayload payload) {
+        ServerLevel level = player.serverLevel();
+        WorldIdentifier worldId = WorldIdentifier.of(level);
+
+        if (worldId == null) {
+            return;
+        }
+
+        var instance = VoxyCommon.getInstance();
+        if (instance == null) {
+            return;
+        }
+
+        WorldEngine engine = instance.getNullable(worldId);
+        if (engine == null) {
+            return;
+        }
+
+        // Get or create streaming service for this level
+        LodStreamingService service = streamingServices.computeIfAbsent(level,
+                l -> {
+                    Logger.info("Creating LodStreamingService for " + level.dimension().location());
+                    return new LodStreamingService(engine);
+                });
+
+        // Forward section request to streaming service
+        service.handleSectionRequest(player, payload);
     }
 
     /**

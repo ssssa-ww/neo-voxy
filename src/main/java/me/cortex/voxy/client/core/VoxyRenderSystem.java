@@ -120,6 +120,10 @@ public class VoxyRenderSystem {
                 Arrays.stream(world.getMapper().getBiomeEntries()).forEach(this.modelService::addBiome);
                 world.getMapper().setBiomeCallback(this.modelService::addBiome);
 
+                // Pre-bake common block models to reduce likelihood of black faces on initial
+                // join
+                prebakeCommonModels(world, this.modelService);
+
                 this.nodeManager.start();
             }
 
@@ -156,7 +160,7 @@ public class VoxyRenderSystem {
                     + sectionRenderer.getClass().getSimpleName() + "'");
 
             // Initialize LOD reception service for network streaming
-            this.lodReceptionService = new LodReceptionService(world, world.getMapper());
+            this.lodReceptionService = new LodReceptionService(world, world.getMapper(), this.modelService);
         } catch (RuntimeException e) {
             world.releaseRef();// If something goes wrong, we must release the world first
             throw e;
@@ -280,6 +284,11 @@ public class VoxyRenderSystem {
             // Tick upload stream (this is ok to do here as upload ticking is just memory
             // management)
             UploadStream.INSTANCE.tick();
+
+            // Tick LOD reception service to process pull-based requests
+            if (this.lodReceptionService != null) {
+                this.lodReceptionService.tick();
+            }
 
             while (this.renderDistanceTracker.setCenterAndProcess(viewport.cameraX, viewport.cameraZ)
                     && VoxyClient.isFrexActive())
@@ -525,6 +534,47 @@ public class VoxyRenderSystem {
 
     public WorldEngine getEngine() {
         return this.worldIn;
+    }
+
+    /**
+     * Pre-bakes models for common blocks to avoid black faces on initial join.
+     * This gives the model baking system a head start before LOD data arrives.
+     */
+    private static void prebakeCommonModels(WorldEngine world, ModelBakerySubsystem modelService) {
+        var mapper = world.getMapper();
+
+        // Common blocks that are likely to appear in LODs
+        String[] commonBlockNames = {
+                "minecraft:stone",
+                "minecraft:dirt",
+                "minecraft:grass_block",
+                "minecraft:water",
+                "minecraft:sand",
+                "minecraft:gravel",
+                "minecraft:oak_log",
+                "minecraft:oak_leaves",
+                "minecraft:spruce_log",
+                "minecraft:spruce_leaves",
+                "minecraft:birch_log",
+                "minecraft:birch_leaves",
+                "minecraft:snow",
+                "minecraft:ice",
+                "minecraft:cobblestone",
+                "minecraft:deepslate"
+        };
+
+        for (String blockName : commonBlockNames) {
+            try {
+                int blockId = mapper.getOrRegisterBlockStateFromString(blockName + "[]");
+                if (blockId > 0) {
+                    modelService.requestBlockBake(blockId);
+                }
+            } catch (Exception e) {
+                // Ignore if block doesn't exist in this version
+            }
+        }
+
+        Logger.info("Requested pre-baking of " + commonBlockNames.length + " common block models");
     }
 
     public LodReceptionService getLodReceptionService() {

@@ -5,8 +5,6 @@ import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.config.IMappingStorage;
 import me.cortex.voxy.common.util.Pair;
-import me.cortex.voxy.common.world.other.Mapper.BiomeEntry;
-import me.cortex.voxy.common.world.other.Mapper.StateEntry;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.Holder;
 import net.minecraft.nbt.CompoundTag;
@@ -302,64 +300,47 @@ public class Mapper {
         // Parse and register the block state
         BlockState parsed = parseBlockStateString(blockStateString);
         if (parsed != null && !parsed.isAir()) {
-            // This will register it if not already present
-            int newId = getIdForBlockState(parsed);
-            Logger.info("Registered server block state: " + blockStateString + " -> id=" + newId + " (parsed as "
-                    + parsed + ")");
-            return newId;
+            return getIdForBlockState(parsed);
         }
 
-        // Try to handle the case where parsing failed
-        // Log more details to help debug
-        Logger.warn("Could not parse block state string: '" + blockStateString + "' - returning air");
-        return 0; // Fall back to air
+        // Parsing failed - this shouldn't happen for valid blocks
+        return 0;
     }
 
-    /**
-     * Parse a block state string like "Block{minecraft:oak_log}[axis=y]" into a
-     * BlockState.
-     */
     private static BlockState parseBlockStateString(String str) {
         try {
             // Format: "Block{namespace:name}[property=value,...]" or
             // "Block{namespace:name}"
             if (!str.startsWith("Block{")) {
-                Logger.warn("parseBlockStateString: invalid format (no Block{ prefix): " + str);
                 return null;
             }
 
-            // Extract the block name and properties
-            int blockStart = 6; // After "Block{"
+            int blockStart = 6;
             int blockEnd = str.indexOf('}');
             if (blockEnd < 0) {
-                Logger.warn("parseBlockStateString: no closing brace: " + str);
                 return null;
             }
 
             String blockName = str.substring(blockStart, blockEnd);
 
-            // Get the block from registry
             var blockId = net.minecraft.resources.ResourceLocation.tryParse(blockName);
             if (blockId == null) {
-                Logger.warn("parseBlockStateString: invalid block name: " + blockName);
                 return null;
             }
 
             var registry = net.minecraft.core.registries.BuiltInRegistries.BLOCK;
             if (!registry.containsKey(blockId)) {
-                Logger.warn("parseBlockStateString: block not in registry: " + blockName);
                 return null;
             }
 
             Block block = registry.get(blockId);
             if (block == null) {
-                Logger.warn("parseBlockStateString: registry returned null for: " + blockName);
                 return null;
             }
 
             BlockState state = block.defaultBlockState();
 
-            // Parse properties if present: [property=value,...]
+            // Parse properties if present
             int propsStart = str.indexOf('[');
             int propsEnd = str.lastIndexOf(']');
             if (propsStart > 0 && propsEnd > propsStart) {
@@ -369,16 +350,9 @@ public class Mapper {
                     for (String prop : props) {
                         String[] kv = prop.split("=", 2);
                         if (kv.length == 2) {
-                            String propName = kv[0].trim();
-                            String propValue = kv[1].trim();
-
-                            // Find the property and apply the value
-                            var propDef = block.getStateDefinition().getProperty(propName);
+                            var propDef = block.getStateDefinition().getProperty(kv[0].trim());
                             if (propDef != null) {
-                                state = applyProperty(state, propDef, propValue);
-                            } else {
-                                Logger.warn("parseBlockStateString: unknown property '" + propName + "' for block "
-                                        + blockName);
+                                state = applyProperty(state, propDef, kv[1].trim());
                             }
                         }
                     }
@@ -387,7 +361,6 @@ public class Mapper {
 
             return state;
         } catch (Exception e) {
-            Logger.warn("Failed to parse block state: " + str + " - " + e.getMessage());
             return null;
         }
     }
@@ -416,6 +389,25 @@ public class Mapper {
     public int getIdForBiomeString(String biomeString) {
         var entry = this.biome2biomeEntry.get(biomeString);
         return entry != null ? entry.id : -1;
+    }
+
+    /**
+     * Get or register biome ID from a biome string.
+     * If the biome doesn't exist in the mapper, register it.
+     * This is used when receiving LOD data from server.
+     * 
+     * @param biomeString Biome resource location string
+     * @return The biome ID (always succeeds, registers new biome if needed)
+     */
+    public int getOrRegisterBiomeFromString(String biomeString) {
+        var entry = this.biome2biomeEntry.get(biomeString);
+        if (entry != null) {
+            return entry.id;
+        }
+
+        // Register the biome on-the-fly
+        entry = this.registerNewBiome(biomeString);
+        return entry.id;
     }
 
     public static long composeMappingId(byte light, int blockId, int biomeId) {

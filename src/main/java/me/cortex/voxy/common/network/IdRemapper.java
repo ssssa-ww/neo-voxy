@@ -45,37 +45,14 @@ public class IdRemapper {
                 return;
             }
 
-            int unmappedCount = 0;
-            int mappedCount = 0;
-
             // Read block states
             int blockStateCount = in.readInt();
             for (int i = 0; i < blockStateCount; i++) {
                 int serverId = in.readInt();
                 String blockStateString = in.readUTF();
-
-                // Try to find or register this block state in client's mapper
+                // Register block state on-the-fly if needed
                 int clientId = clientMapper.getOrRegisterBlockStateFromString(blockStateString);
-                if (clientId > 0) {
-                    serverToClientBlock.put(serverId, clientId);
-                    mappedCount++;
-                } else if (clientId == 0) {
-                    // This is either air or a failed mapping
-                    // Only log warning if it's not air
-                    if (!blockStateString.contains("minecraft:air") &&
-                            !blockStateString.contains("minecraft:cave_air") &&
-                            !blockStateString.contains("minecraft:void_air")) {
-                        Logger.warn("Block mapped to air (parsing failed?): serverId=" + serverId + " block="
-                                + blockStateString);
-                        unmappedCount++;
-                    }
-                    serverToClientBlock.put(serverId, 0);
-                } else {
-                    // clientId < 0 - should not happen with getOrRegisterBlockStateFromString
-                    Logger.error("Negative client ID returned for: " + blockStateString);
-                    serverToClientBlock.put(serverId, 0);
-                    unmappedCount++;
-                }
+                serverToClientBlock.put(serverId, clientId);
             }
 
             // Read biomes
@@ -83,21 +60,13 @@ public class IdRemapper {
             for (int i = 0; i < biomeCount; i++) {
                 int serverId = in.readInt();
                 String biomeString = in.readUTF();
-
-                // Try to find this biome in client's mapper
-                int clientId = clientMapper.getIdForBiomeString(biomeString);
-                if (clientId >= 0) {
-                    serverToClientBiome.put(serverId, clientId);
-                } else {
-                    // Biome doesn't exist on client, map to plains (id 0)
-                    Logger.info("Server biome not found on client: " + biomeString);
-                    serverToClientBiome.put(serverId, 0);
-                }
+                // Register biome on-the-fly if needed
+                int clientId = clientMapper.getOrRegisterBiomeFromString(biomeString);
+                serverToClientBiome.put(serverId, clientId);
             }
 
             isReady = true;
-            Logger.info("Built ID remapper: " + blockStateCount + " blocks (" + mappedCount + " mapped, "
-                    + unmappedCount + " unmapped), " + biomeCount + " biomes");
+            Logger.info("Built ID remapper: " + blockStateCount + " blocks, " + biomeCount + " biomes");
 
         } catch (IOException e) {
             Logger.error("Failed to parse server mapper data: " + e.getMessage());

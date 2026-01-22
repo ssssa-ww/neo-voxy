@@ -19,6 +19,8 @@ import org.jetbrains.annotations.NotNull;
  * <li>{@link #MSG_CACHE_RESPONSE} - Client responds with bloom filter</li>
  * <li>{@link #MSG_RATE_UPDATE} - Client sends desired rate to server</li>
  * <li>{@link #MSG_SYNC_REQUEST} - Client requests LOD sync</li>
+ * <li>{@link #MSG_REQUEST_SECTIONS} - Client requests specific sections (pull
+ * model)</li>
  * </ul>
  */
 public record VoxyPacketPayload(byte messageType, byte[] data) implements CustomPacketPayload {
@@ -35,6 +37,7 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
     public static final byte MSG_RATE_UPDATE = 5; // Client→Server: desired rate from congestion control
     public static final byte MSG_SYNC_REQUEST = 6; // Client→Server: request LOD sync
     public static final byte MSG_SYNC_COMPLETE = 7; // Server→Client: signals streaming complete
+    public static final byte MSG_REQUEST_SECTIONS = 8; // Client→Server: request specific sections (pull model)
 
     @NotNull
     @Override
@@ -116,5 +119,201 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
         }
         return ((data[0] & 0xFF) << 24) | ((data[1] & 0xFF) << 16) |
                 ((data[2] & 0xFF) << 8) | (data[3] & 0xFF);
+    }
+
+    /**
+     * Helper to create a section request payload (client→server).
+     * Uses delta-encoding for efficient compression of adjacent section keys.
+     * 
+     * @param sectionKeys Array of section keys to request
+     * @return Payload with compressed section keys
+     */
+    public static VoxyPacketPayload requestSections(long[] sectionKeys) {
+        if (sectionKeys == null || sectionKeys.length == 0) {
+            return new VoxyPacketPayload(MSG_REQUEST_SECTIONS, new byte[0]);
+        }
+
+        // Sort keys for better delta compression
+        long[] sorted = sectionKeys.clone();
+        java.util.Arrays.sort(sorted);
+
+        // Calculate buffer size: 4 bytes count + 8 bytes first key + variable deltas
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        java.io.DataOutputStream out = new java.io.DataOutputStream(baos);
+
+        try {
+            out.writeInt(sorted.length);
+            out.writeLong(sorted[0]); // First key in full
+
+            // Delta-encode remaining keys
+            for (int i = 1; i < sorted.length; i++) {
+                long delta = sorted[i] - sorted[i - 1];
+                writeVarLong(out, delta);
+            }
+
+            return new VoxyPacketPayload(MSG_REQUEST_SECTIONS, baos.toByteArray());
+        } catch (java.io.IOException e) {
+            return new VoxyPacketPayload(MSG_REQUEST_SECTIONS, new byte[0]);
+        }
+    }
+
+    /**
+     * Parse requested section keys from a request payload.
+     * 
+     * @return Array of section keys, or empty array on error
+     */
+    public long[] parseRequestedKeys() {
+        if (messageType != MSG_REQUEST_SECTIONS || data.length < 4) {
+            return new long[0];
+        }
+
+        try {
+            java.io.DataInputStream in = new java.io.DataInputStream(
+                    new java.io.ByteArrayInputStream(data));
+
+            int count = in.readInt();
+            if (count <= 0 || count > 2000) { // Limit batch size
+                return new long[0];
+            }
+
+            long[] keys = new long[count];
+            keys[0] = in.readLong(); // First key in full
+
+            // Delta-decode remaining keys
+            for (int i = 1; i < count; i++) {
+                long delta = readVarLong(in);
+                keys[i] = keys[i - 1] + delta;
+            }
+
+            return keys;
+        } catch (java.io.IOException e) {
+            return new long[0];
+        }
+    }
+
+    /**
+     * Write a variable-length long (similar to VarInt but for longs).
+     */
+    private static void writeVarLong(java.io.DataOutputStream out, long value) throws java.io.IOException {
+        while ((value & ~0x7FL) != 0) {
+            out.writeByte((int) (value & 0x7F) | 0x80);
+            value >>>= 7;
+        }
+        out.writeByte((int) value);
+    }
+
+    /**
+     * Read a variable-length long.
+     */
+    private static long readVarLong(java.io.DataInputStream in) throws java.io.IOException {
+        long result = 0;
+        int shift = 0;
+        int b;
+        do {
+            b = in.readByte();
+            result |= (long) (b & 0x7F) << shift;
+            shift += 7;
+        } while ((b & 0x80) != 0);
+        return result;
+    }
+
+    /**
+     * Helper to create a cache query payload (server→client).
+     * Queries specific section keys to check if client has them.
+     * 
+     * @param sectionKeys Keys to query
+     * @return Cache query payload
+     */
+    public static VoxyPacketPayload cacheQuery(long[] sectionKeys) {
+        return new VoxyPacketPayload(MSG_CACHE_QUERY, encodeLongArray(sectionKeys));
+    }
+
+    /**
+     * Parse section keys from a cache query payload.
+     * 
+     * @return Array of queried section keys
+     */
+    public long[] parseCacheQueryKeys() {
+        if (messageType != MSG_CACHE_QUERY) {
+            return new long[0];
+        }
+        return decodeLongArray(data);
+    }
+
+    /**
+     * Helper to create a cache response payload (client→server).
+     * Contains a bloom filter representing sections the client has.
+     * 
+     * @param bloomFilter Bloom filter with cached section keys
+     * @return Cache response payload
+     */
+    public static VoxyPacketPayload cacheResponse(BloomFilter bloomFilter) {
+        return new VoxyPacketPayload(MSG_CACHE_RESPONSE, bloomFilter.toBytes());
+    }
+
+    /**
+     * Parse bloom filter from a cache response payload.
+     * 
+     * @return BloomFilter representing client's cached sections
+     */
+    public BloomFilter parseCacheResponseBloomFilter() {
+        if (messageType != MSG_CACHE_RESPONSE) {
+            return BloomFilter.forExpectedElements(0);
+        }
+        return BloomFilter.fromBytes(data);
+    }
+
+    /**
+     * Encode a long array to bytes using delta compression.
+     */
+    private static byte[] encodeLongArray(long[] keys) {
+        if (keys == null || keys.length == 0) {
+            return new byte[0];
+        }
+
+        long[] sorted = keys.clone();
+        java.util.Arrays.sort(sorted);
+
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        java.io.DataOutputStream out = new java.io.DataOutputStream(baos);
+
+        try {
+            out.writeInt(sorted.length);
+            out.writeLong(sorted[0]);
+            for (int i = 1; i < sorted.length; i++) {
+                writeVarLong(out, sorted[i] - sorted[i - 1]);
+            }
+            return baos.toByteArray();
+        } catch (java.io.IOException e) {
+            return new byte[0];
+        }
+    }
+
+    /**
+     * Decode a long array from delta-compressed bytes.
+     */
+    private static long[] decodeLongArray(byte[] data) {
+        if (data == null || data.length < 4) {
+            return new long[0];
+        }
+
+        try {
+            java.io.DataInputStream in = new java.io.DataInputStream(
+                    new java.io.ByteArrayInputStream(data));
+
+            int count = in.readInt();
+            if (count <= 0 || count > 10000) {
+                return new long[0];
+            }
+
+            long[] keys = new long[count];
+            keys[0] = in.readLong();
+            for (int i = 1; i < count; i++) {
+                keys[i] = keys[i - 1] + readVarLong(in);
+            }
+            return keys;
+        } catch (java.io.IOException e) {
+            return new long[0];
+        }
     }
 }
