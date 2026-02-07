@@ -95,7 +95,7 @@ The following mixins from the original Fabric Voxy have been **removed** in this
 - `MixinLevelCommon` - Server/common level hooks
 
 ## Known Issues
-
+> ⚠️ **INCOMPATABILITIES**: BetterFpsDist.
 
 
 ## Contributing
@@ -125,7 +125,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 > ⚠️ **IMPORTANT**: This is a source-code-only fork. **Do not distribute compiled builds.** You must build from source yourself
- > ⚠️ **INCOMPATABILITIES**: BetterFpsDist.
+
 
 ---
 
