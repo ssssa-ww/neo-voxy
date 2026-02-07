@@ -8,10 +8,9 @@ Neo-Voxy is a NeoForge port of the Voxy mod, a far-distance rendering mod utiliz
 
 | Feature | Status |
 |---------|--------|
-| LOD Streaming | ⚡ Partially Working |
+| LOD Streaming | ⚠️  Functional/Experimental |
 | Server-to-Client Sync | ✅ Functional |
-| Block State Mapping | ⚠️ Some Issues |
-| Shader Support (Iris) | ⚠️ Expected to Work |
+| Shader Support (Iris) | ✅ Voxy Shaders Functional |
 | Testing | ❌Not Done Rigorously|
 
 ### What Works
@@ -23,7 +22,6 @@ Neo-Voxy is a NeoForge port of the Voxy mod, a far-distance rendering mod utiliz
 
 ### What's Broken/Incomplete
 - **LOD streaming** is only partially working - some edge cases may fail
-- Block state variants (e.g., grass, leaves, sand) may render incorrectly
 - No support for Flashback, Nvidium, or Chunky integrations
 - General instability and lack of comprehensive testing
 
@@ -98,10 +96,7 @@ The following mixins from the original Fabric Voxy have been **removed** in this
 
 ## Known Issues
 
-1. **Block State Mapping**: Some blocks (particularly stateful blocks like grass and sand) may render with incorrect textures or states
-2. **LOD Streaming Stability**: The LOD streaming service may occasionally fail to stream all sections
-3. **Race Conditions**: There may be timing issues where sections are processed before they're fully loaded
-4. **Memory Management**: The port has not been optimized for memory usage
+
 
 ## Contributing
 

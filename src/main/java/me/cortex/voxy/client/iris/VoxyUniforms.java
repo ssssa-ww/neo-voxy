@@ -33,15 +33,25 @@ public class VoxyUniforms {
         return new Matrix4f(vrs.getViewport().modelView);
     }
 
+    private static int debugFrameCounter = 0;
+
     public static Matrix4f getProjection() {// This is 1 frame late ;-; cries, since the update occurs _before_ the voxy
                                             // render pipeline
         var getVrs = (IGetVoxyRenderSystem) Minecraft.getInstance().levelRenderer;
         if (getVrs == null || getVrs.getVoxyRenderSystem() == null) {
+            if (debugFrameCounter++ % 300 == 0) {
+                me.cortex.voxy.common.Logger
+                        .warn("VoxyUniforms.getProjection(): VoxyRenderSystem is null, returning identity matrix");
+            }
             return new Matrix4f();
         }
         var vrs = getVrs.getVoxyRenderSystem();
         var mat = vrs.getViewport().projection;
         if (mat == null) {
+            if (debugFrameCounter++ % 300 == 0) {
+                me.cortex.voxy.common.Logger
+                        .warn("VoxyUniforms.getProjection(): viewport.projection is null, returning identity matrix");
+            }
             return new Matrix4f();
         }
         return new Matrix4f(mat);

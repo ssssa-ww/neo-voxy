@@ -680,10 +680,7 @@ public class ModelFactory {
                         captureColourConstant(colourProvider, blockState, biomeToUse) | 0xFF000000);
                 clrUploadPtr += 4;
             }
-            if (blockState.getBlock() == net.minecraft.world.level.block.Blocks.GRASS_BLOCK) {
-                Logger.info("Grass block baked WITH biomes available, biomeIndex=" + biomeIndex + ", biomes.size="
-                        + this.biomes.size());
-            }
+
         } else {
             // No biomes registered yet - use default biome color as fallback,
             // but still add to modelsRequiringBiomeColours so colors get populated
@@ -691,12 +688,7 @@ public class ModelFactory {
             int fallbackColor = captureColourConstant(colourProvider, blockState, DEFAULT_BIOME) | 0xFF000000;
             MemoryUtil.memPutInt(uploadPtr, fallbackColor);
             this.modelsRequiringBiomeColours.add(new Pair<>(modelId, blockState));
-            if (blockState.getBlock() == net.minecraft.world.level.block.Blocks.GRASS_BLOCK) {
-                Logger.warn("Grass block baked WITHOUT biomes! Using fallback color 0x"
-                        + Integer.toHexString(fallbackColor) +
-                        ", modelId=" + modelId + ", modelsRequiringBiomeColours.size="
-                        + this.modelsRequiringBiomeColours.size());
-            }
+
         }
         uploadPtr += 4;
 
@@ -773,7 +765,7 @@ public class ModelFactory {
     }
 
     private BiomeUploadResult addBiome0(int id, Biome biome) {
-        Logger.info("addBiome0 called: id=" + id + ", biome=" + biome);
+
         for (int i = this.biomes.size(); i <= id; i++) {
             this.biomes.add(null);
         }
@@ -787,11 +779,9 @@ public class ModelFactory {
         }
 
         if (this.modelsRequiringBiomeColours.isEmpty()) {
-            Logger.info("addBiome0: No models requiring biome colours yet");
             return null;
         }
 
-        Logger.info("addBiome0: Updating " + this.modelsRequiringBiomeColours.size() + " models with biome colors");
         var result = new BiomeUploadResult(this.biomes.size(), this.modelsRequiringBiomeColours.size());
 
         int i = 0;
@@ -829,15 +819,10 @@ public class ModelFactory {
         if (providers.containsKey(block)) {
             var provider = providers.get(block);
             // Debug logging for grass blocks
-            if (block == net.minecraft.world.level.block.Blocks.GRASS_BLOCK) {
-                Logger.info("Grass block color provider found: " + provider);
-            }
+
             return provider;
         }
-        // Debug logging for grass blocks
-        if (block == net.minecraft.world.level.block.Blocks.GRASS_BLOCK) {
-            Logger.warn("Grass block has NO color provider! providers map size: " + providers.size());
-        }
+
         return null;
     }
 

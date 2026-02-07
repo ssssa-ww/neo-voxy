@@ -55,8 +55,9 @@ public class VoxyServer {
         // Register server-side message handler
         VoxyNetworkHandler.setServerMessageHandler(VoxyServer::handleClientMessage);
 
-        // Create VoxyCommon instance for server-side LOD storage
-        if (VoxyCommon.getInstance() == null) {
+        // Create VoxyCommon instance for server-side LOD storage (dedicated server
+        // only)
+        if (VoxyCommon.IS_DEDICATED_SERVER && VoxyCommon.getInstance() == null) {
             Logger.info("Creating VoxyServerInstance for server-side LOD storage");
             VoxyCommon.setInstanceFactory(VoxyServerInstance::new);
             VoxyCommon.createInstance();
@@ -248,8 +249,9 @@ public class VoxyServer {
         }
         streamingServices.clear();
 
-        // Shutdown VoxyCommon instance
-        if (VoxyCommon.getInstance() != null) {
+        // Shutdown VoxyCommon instance (dedicated server only)
+        // In singleplayer, the client handles the instance lifecycle
+        if (VoxyCommon.IS_DEDICATED_SERVER && VoxyCommon.getInstance() != null) {
             Logger.info("Shutting down VoxyServerInstance");
             VoxyCommon.shutdownInstance();
         }

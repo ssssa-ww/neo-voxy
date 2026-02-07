@@ -11,6 +11,7 @@ import me.cortex.voxy.client.core.rendering.section.backend.AbstractSectionRende
 import me.cortex.voxy.client.core.rendering.util.DepthFramebuffer;
 import me.cortex.voxy.client.core.rendering.util.UploadStream;
 import me.cortex.voxy.client.iris.IrisVoxyRenderPipelineData;
+
 import net.irisshaders.iris.shaderpack.materialmap.WorldRenderingSettings;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL30;
@@ -207,32 +208,7 @@ public class IrisVoxyRenderPipeline extends AbstractRenderPipeline {
     private static final int UNIFORM_BINDING_POINT = 5;// TODO make ths binding point... not randomly 5
 
     private StringBuilder buildGenericShaderHeader(AbstractSectionRenderer<?, ?> renderer, String input) {
-        StringBuilder builder = new StringBuilder();
-
-        // Extract the #version and #extension directives from the beginning of the
-        // input shader
-        // These MUST come first in GLSL
-        String[] lines = input.split("\n");
-        int firstNonDirectiveLine = 0;
-
-        for (int i = 0; i < lines.length; i++) {
-            String trimmed = lines[i].trim();
-            if (trimmed.startsWith("#version") || trimmed.startsWith("#extension")) {
-                builder.append(lines[i]).append("\n");
-                firstNonDirectiveLine = i + 1;
-            } else if (!trimmed.isEmpty() && !trimmed.startsWith("//")) {
-                // Found a non-directive, non-comment, non-empty line
-                break;
-            } else {
-                // Empty line or comment before directives - include it
-                if (firstNonDirectiveLine == i) {
-                    firstNonDirectiveLine = i + 1;
-                }
-            }
-        }
-
-        // Now add our custom uniforms, SSBOs, and samplers after the version directive
-        builder.append("\n");
+        StringBuilder builder = new StringBuilder(input).append("\n\n\n");
 
         if (this.data.getUniforms() != null) {
             builder.append("layout(binding = " + UNIFORM_BINDING_POINT + ", std140) uniform ShaderUniformBindings ")
@@ -250,17 +226,7 @@ public class IrisVoxyRenderPipeline extends AbstractRenderPipeline {
             builder.append(this.data.getImageSet().layout()).append("\n\n");
         }
 
-        builder.append("\n");
-
-        // Append the rest of the shader source (after version/extension directives)
-        for (int i = firstNonDirectiveLine; i < lines.length; i++) {
-            builder.append(lines[i]);
-            if (i < lines.length - 1) {
-                builder.append("\n");
-            }
-        }
-
-        return builder;
+        return builder.append("\n\n");
     }
 
     @Override

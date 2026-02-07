@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
 public abstract class VoxyInstance {
     private volatile boolean isRunning = true;
     private final Thread worldCleaner;
-    public final BooleanSupplier savingServiceRateLimiter;//Can run if this returns true
+    public final BooleanSupplier savingServiceRateLimiter;// Can run if this returns true
     protected final UnifiedServiceThreadPool threadPool;
     protected final SectionSavingService savingService;
     protected final VoxelIngestService ingestService;
@@ -37,18 +37,18 @@ public abstract class VoxyInstance {
         this.savingService = new SectionSavingService(this.getServiceManager());
         this.ingestService = new VoxelIngestService(this.getServiceManager());
         this.importManager = this.createImportManager();
-        this.savingServiceRateLimiter = ()->this.savingService.getTaskCount()<1200;
-        this.worldCleaner = new Thread(()->{
+        this.savingServiceRateLimiter = () -> this.savingService.getTaskCount() < 1200;
+        this.worldCleaner = new Thread(() -> {
             try {
                 while (this.isRunning) {
-                    //noinspection BusyWait
+                    // noinspection BusyWait
                     Thread.sleep(1000);
                     this.cleanIdle();
                 }
             } catch (InterruptedException e) {
-                //We are exiting, so just exit
+                // We are exiting, so just exit
             } catch (Exception e) {
-                Logger.error("Exception in world cleaner",e);
+                Logger.error("Exception in world cleaner", e);
             }
         });
         this.worldCleaner.setPriority(Thread.MIN_PRIORITY);
@@ -58,7 +58,8 @@ public abstract class VoxyInstance {
     }
 
     protected void setNumThreads(int threads) {
-        if (threads<0) throw new IllegalArgumentException("Num threads <0");
+        if (threads < 0)
+            throw new IllegalArgumentException("Num threads <0");
         if (this.threadPool.setNumThreads(threads)) {
             Logger.info("Dedicated voxy thread pool size: " + threads);
         }
@@ -75,22 +76,29 @@ public abstract class VoxyInstance {
     public ServiceManager getServiceManager() {
         return this.threadPool.serviceManager;
     }
+
     public UnifiedServiceThreadPool getThreadPool() {
         return this.threadPool;
     }
+
     public VoxelIngestService getIngestService() {
         return this.ingestService;
     }
+
     public ImportManager getImportManager() {
         return this.importManager;
     }
 
-    //TODO: reference count the world object
-    // have automatic world cleanup after ~1 minute of inactivity and the reference count equaling zero possibly
-    // note, the reference count should be separate from the number of active chunks to prevent many issues
-    // a world is no longer active once it has no reference counts and no active chunks associated with it
+    // TODO: reference count the world object
+    // have automatic world cleanup after ~1 minute of inactivity and the reference
+    // count equaling zero possibly
+    // note, the reference count should be separate from the number of active chunks
+    // to prevent many issues
+    // a world is no longer active once it has no reference counts and no active
+    // chunks associated with it
     public WorldEngine getNullable(WorldIdentifier identifier) {
-        if (!this.isRunning) return null;
+        if (!this.isRunning)
+            return null;
         var cache = identifier.cachedEngineObject;
         WorldEngine world;
         if (cache == null) {
@@ -102,25 +110,26 @@ public abstract class VoxyInstance {
             } else {
                 if (world.isLive()) {
                     if (world.instanceIn != this) {
-                        throw new IllegalStateException("World cannot be in identifier cache, alive and not part of this instance");
+                        throw new IllegalStateException(
+                                "World cannot be in identifier cache, alive and not part of this instance");
                     }
-                    //Successful cache hit
+                    // Successful cache hit
                 } else {
                     identifier.cachedEngineObject = null;
                     world = null;
                 }
             }
         }
-        if (world == null) {//If the cached world is null, try get from the active worlds
+        if (world == null) {// If the cached world is null, try get from the active worlds
             long stamp = this.activeWorldLock.readLock();
             world = this.activeWorlds.get(identifier);
             this.activeWorldLock.unlockRead(stamp);
-            if (world != null) {//Setup cache
+            if (world != null) {// Setup cache
                 identifier.cachedEngineObject = new WeakReference<>(world);
             }
         }
         if (world != null) {
-            //Mark the world as active
+            // Mark the world as active
             world.markActive();
         }
         return world;
@@ -144,14 +153,13 @@ public abstract class VoxyInstance {
 
         world = this.activeWorlds.get(identifier);
         if (world == null) {
-            //Create world here
+            // Create world here
             world = this.createWorld(identifier);
         }
         this.activeWorldLock.unlockWrite(stamp);
         identifier.cachedEngineObject = new WeakReference<>(world);
         return world;
     }
-
 
     protected abstract SectionStorage createStorage(WorldIdentifier identifier);
 
@@ -175,7 +183,8 @@ public abstract class VoxyInstance {
             long stamp = this.activeWorldLock.readLock();
             for (var pair : this.activeWorlds.entrySet()) {
                 if (pair.getValue().isWorldIdle()) {
-                    if (idleWorlds == null) idleWorlds = new ArrayList<>();
+                    if (idleWorlds == null)
+                        idleWorlds = new ArrayList<>();
                     idleWorlds.add(pair.getKey());
                 }
             }
@@ -183,14 +192,18 @@ public abstract class VoxyInstance {
         }
 
         if (idleWorlds != null) {
-            //Shutdown and clear all idle worlds
+            // Shutdown and clear all idle worlds
             long stamp = this.activeWorldLock.writeLock();
             for (var id : idleWorlds) {
                 var world = this.activeWorlds.remove(id);
-                if (world == null) continue;//Race condition between unlock read and acquire write
-                if (!world.isWorldIdle()) {this.activeWorlds.put(id, world); continue;}//No longer idle
+                if (world == null)
+                    continue;// Race condition between unlock read and acquire write
+                if (!world.isWorldIdle()) {
+                    this.activeWorlds.put(id, world);
+                    continue;
+                } // No longer idle
                 Logger.info("Shutting down idle world: " + id.getLongHash());
-                //If is here close and free the world
+                // If is here close and free the world
                 world.free();
             }
             this.activeWorldLock.unlockWrite(stamp);
@@ -198,8 +211,12 @@ public abstract class VoxyInstance {
     }
 
     public void addDebug(List<String> debug) {
-        debug.add("MemoryBuffer, Count/Size (mb): " + MemoryBuffer.getCount() + "/" + (MemoryBuffer.getTotalSize()/1_000_000));
-        debug.add("I/S/AWSC: " + this.ingestService.getTaskCount() + "/" + this.savingService.getTaskCount() + "/[" + this.activeWorlds.values().stream().map(a->""+a.getActiveSectionCount()).collect(Collectors.joining(", ")) + "]");//Active world section count
+        debug.add("MemoryBuffer, Count/Size (mb): " + MemoryBuffer.getCount() + "/"
+                + (MemoryBuffer.getTotalSize() / 1_000_000));
+        debug.add("I/S/AWSC: "
+                + this.ingestService.getTaskCount() + "/" + this.savingService.getTaskCount() + "/[" + this.activeWorlds
+                        .values().stream().map(a -> "" + a.getActiveSectionCount()).collect(Collectors.joining(", "))
+                + "]");// Active world section count
     }
 
     public void shutdown() {
@@ -220,9 +237,16 @@ public abstract class VoxyInstance {
             this.activeWorldLock.unlockRead(stamp);
         }
 
-        try {this.ingestService.shutdown();} catch (Exception e) {Logger.error(e);}
-        try {this.savingService.shutdown();} catch (Exception e) {Logger.error(e);}
-
+        try {
+            this.ingestService.shutdown();
+        } catch (Exception e) {
+            Logger.error(e);
+        }
+        try {
+            this.savingService.shutdown();
+        } catch (Exception e) {
+            Logger.error(e);
+        }
 
         long stamp = this.activeWorldLock.writeLock();
 
@@ -234,22 +258,32 @@ public abstract class VoxyInstance {
                         printedNotice = true;
                         Logger.error("Not all worlds shutdown, force closing worlds");
                     }
+                    long timeout = System.currentTimeMillis() + 5000;
                     while (world.isWorldUsed()) {
+                        if (System.currentTimeMillis() > timeout) {
+                            Logger.error("Timeout waiting for world " + world + " to shutdown. RefCount: "
+                                    + world.getRefCount() + ", Sections: " + world.getActiveSectionCount());
+                            break;
+                        }
                         try {
-                            //noinspection BusyWait
+                            // noinspection BusyWait
                             Thread.sleep(10);
                         } catch (InterruptedException e) {
                             throw new RuntimeException(e);
                         }
                     }
                 }
-                //Free the world
+                // Free the world
                 world.free();
             }
             this.activeWorlds.clear();
         }
 
-        try {this.threadPool.shutdown();} catch (Exception e) {Logger.error(e);}
+        try {
+            this.threadPool.shutdown();
+        } catch (Exception e) {
+            Logger.error(e);
+        }
 
         if (!this.activeWorlds.isEmpty()) {
             throw new IllegalStateException("Not all worlds shutdown");

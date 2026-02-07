@@ -238,6 +238,10 @@ public class WorldEngine {
         this.lastActiveTime = System.currentTimeMillis();
     }
 
+    public int getRefCount() {
+        return this.refCount.get();
+    }
+
     public void saveSection(WorldSection section) {
         section.setNotDirty();
         if (this.saveCallback != null) {

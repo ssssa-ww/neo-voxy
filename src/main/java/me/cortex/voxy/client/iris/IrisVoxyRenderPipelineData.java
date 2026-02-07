@@ -376,6 +376,17 @@ public class IrisVoxyRenderPipelineData {
                 return this;
             }
 
+            @Override
+            public DynamicLocationalUniformHolder uniformMatrix(UniformUpdateFrequency updateFrequency, String name,
+                    Supplier<org.joml.Matrix4fc> value) {
+                this.injectDynamicUniformType(name, UniformType.MAT4, offset -> {
+                    return ptr -> {
+                        value.get().getToAddress(ptr + offset);
+                    };
+                });
+                return this;
+            }
+
             private void injectDynamicUniformType(String name, UniformType type,
                     Long2ObjectFunction<LongConsumer> supplier) {
                 var names = patch.getUniformList();
@@ -421,16 +432,19 @@ public class IrisVoxyRenderPipelineData {
             }
         };
         CommonUniforms.addDynamicUniforms(uniformBuilder, FogMode.PER_FRAGMENT);
-        // Note: VoxyUniforms.addUniforms() is called via MixinMatrixUniforms which
-        // injects
-        // into CommonUniforms.addNonDynamicUniforms(). Do NOT call it here as well!
+        // Call VoxyUniforms.addUniforms directly to ensure Voxy-specific uniform values
+        // are properly registered. The indirect flow via MixinMatrixUniforms and
+        // CustomUniforms
+        // may not properly populate the location map for this local uniformBuilder.
+        VoxyUniforms.addUniforms(uniformBuilder);
         cu.assignTo(uniformBuilder);
         cu.mapholderToPass(uniformBuilder, patch);
 
         FunctionReturn cachedReturn = new FunctionReturn();
         ((CustomUniformsAccessor) cu).getLocationMap().get(patch).object2IntEntrySet().forEach(entry -> {
+            // Skip uniforms that were already added (e.g., by VoxyUniforms.addUniforms)
             if (!seenUniforms.add(entry.getKey().getName())) {
-                throw new IllegalArgumentException("Already added uniform: " + entry.getKey().getName());
+                return; // Already added, skip this one
             }
             uniforms.add(new UniformWritingHolder(entry.getKey().getName(), Type.convert(entry.getKey().getType()),
                     offset -> createWriter(offset, cachedReturn, entry.getKey())));
@@ -441,9 +455,9 @@ public class IrisVoxyRenderPipelineData {
             for (var uniform : uniforms) {
                 uniformsUnseen.remove(uniform.name);
             }
-            Logger.error("The following uniforms could not be found: ["
+            Logger.warn("The following uniforms could not be found: ["
                     + uniformsUnseen.stream().sorted(String::compareToIgnoreCase).collect(Collectors.joining(","))
-                    + "]");
+                    + "] - this is usually harmless if the shader pack works correctly");
         }
         // In _theory_ this should work?
         return uniforms;
@@ -506,8 +520,6 @@ public class IrisVoxyRenderPipelineData {
                     return false;
                 String name = this.name(names);
                 // Check if a sampler with this name already exists (deduplication)
-                // This is needed because TextureWSampler is a record and IntSupplier lambdas
-                // don't have proper equality, so the same sampler can be added multiple times
                 for (TextureWSampler existing : samplerSet) {
                     if (existing.name().equals(name)) {
                         return true; // Already exists, skip adding
@@ -542,12 +554,6 @@ public class IrisVoxyRenderPipelineData {
         ipipe.addGbufferOrShadowSamplers(samplerBuilder, imageBuilder, ipipe::getFlippedAfterPrepare, false, true, true,
                 false);
 
-        // Note: VoxySamplers.addSamplers() is called via MixinIrisSamplers which
-        // injects into IrisSamplers.addRenderTargetSamplers(). This is called
-        // internally
-        // by addGbufferOrShadowSamplers(), so voxy samplers are already added to
-        // samplerSet.
-
         // samplerSet contains our samplers
         if (samplerSet.size() != samplerNameSet.size()) {
             Logger.error("Did not find all requested samplers. Found ["
@@ -559,28 +565,13 @@ public class IrisVoxyRenderPipelineData {
 
         StringBuilder builder = new StringBuilder();
         TextureWSampler[] samplers = new TextureWSampler[samplerSet.size()];
-
-        // BASE_SAMPLER_BINDING_INDEX is defined as 6 in
-        // IrisVoxyRenderPipeline.buildGenericShaderHeader()
-        // We compute the binding indices as constants to satisfy GLSL's requirement for
-        // constant layout values
-        final int BASE_SAMPLER_BINDING_INDEX = 6;
-
         int i = 0;
         for (var entry : samplerSet) {
             samplers[i] = entry;
 
             String samplerType = samplerDataSet.get(entry.name);
-
-            // If samplerType starts with "!", it means this sampler is already declared
-            // by the shaderpack's GLSL includes (e.g., lod_mod_support.glsl).
-            // Skip GLSL declaration generation but still bind the texture at runtime.
-            if (samplerType != null && !samplerType.startsWith("!")) {
-                // Use a constant binding index rather than a macro expression
-                int bindingIndex = BASE_SAMPLER_BINDING_INDEX + i;
-                builder.append("layout(binding=").append(bindingIndex).append(") uniform ")
-                        .append(samplerType).append(" ").append(entry.name).append(";\n");
-            }
+            builder.append("layout(binding=(BASE_SAMPLER_BINDING_INDEX+").append(i).append(")) uniform ")
+                    .append(samplerType).append(" ").append(entry.name).append(";\n");
             i++;
         }
 
