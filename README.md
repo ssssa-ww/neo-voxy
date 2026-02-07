@@ -128,6 +128,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 
-**Version**: `0.1.0`  
+**Version**: `0.2.0`  
 **Minecraft**: `1.21.1`  
 **Mod Loader**: NeoForge `21.1.77+`
