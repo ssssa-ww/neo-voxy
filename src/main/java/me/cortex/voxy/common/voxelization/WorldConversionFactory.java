@@ -1,10 +1,10 @@
 package me.cortex.voxy.common.voxelization;
 
 import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
+import me.cortex.voxy.common.util.ModLoaderUtil;
 import me.cortex.voxy.common.world.other.Mapper;
 import me.cortex.voxy.common.world.other.Mipper;
-// Lithium support removed for NeoForge port
-// import net.caffeinemc.mods.lithium.common.world.chunk.LithiumHashPalette;
+import net.caffeinemc.mods.lithium.common.world.chunk.LithiumHashPalette;
 import net.minecraft.core.Holder;
 import net.minecraft.util.SimpleBitStorage;
 import net.minecraft.util.ZeroBitStorage;
@@ -20,7 +20,7 @@ import net.minecraft.world.level.chunk.SingleValuePalette;
 import java.util.WeakHashMap;
 
 public class WorldConversionFactory {
-    private static final boolean LITHIUM_INSTALLED = false;
+    private static final boolean LITHIUM_INSTALLED = ModLoaderUtil.isModLoaded("lithium");
 
     private static final class Cache {
         private final int[] biomeCache = new int[4 * 4 * 4];
@@ -41,6 +41,30 @@ public class WorldConversionFactory {
 
     // TODO: create a mapping for world/mapper -> local mapping
     private static final ThreadLocal<Cache> THREAD_LOCAL = ThreadLocal.withInitial(Cache::new);
+
+    private static boolean setupLithiumLocalPallet(Palette<BlockState> vp,
+            Reference2IntOpenHashMap<BlockState> blockCache, Mapper mapper, int[] pc) {
+        if (vp instanceof LithiumHashPalette<BlockState>) {
+            for (int i = 0; i < vp.getSize(); i++) {
+                BlockState state = null;
+                int blockId = -1;
+                try {
+                    state = vp.valueFor(i);
+                } catch (Exception e) {
+                }
+                if (state != null) {
+                    blockId = blockCache.getOrDefault(state, -1);
+                    if (blockId == -1) {
+                        blockId = mapper.getIdForBlockState(state);
+                        blockCache.put(state, blockId);
+                    }
+                }
+                pc[i] = blockId;
+            }
+            return true;
+        }
+        return false;
+    }
 
     private static int setupLocalPalette(Palette<BlockState> vp, Reference2IntOpenHashMap<BlockState> blockCache,
             Mapper mapper, int[] pc) {
@@ -91,7 +115,9 @@ public class WorldConversionFactory {
             }
             pc[0] = blockId;
         } else {
-            throw new IllegalStateException("Unknown palette type: " + vp);
+            if (!(LITHIUM_INSTALLED && setupLithiumLocalPallet(vp, blockCache, mapper, pc))) {
+                throw new IllegalStateException("Unknown palette type: " + vp);
+            }
         }
         return c;
     }

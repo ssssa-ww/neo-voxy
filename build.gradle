@@ -73,6 +73,9 @@ dependencies {
     // Optional: Iris shaders support
     modCompileOnly("maven.modrinth:iris:1.8.0+1.21.1-neoforge")
 
+    // Optional: Lithium support (for LithiumHashPalette compatibility)
+    modCompileOnly("maven.modrinth:lithium:mc1.21.1-0.15.0-neoforge")
+
     // Optional: Nvidium support
     //modCompileOnly "maven.modrinth:nvidium:0.3.0-beta"
 }
