@@ -1,4 +1,4 @@
-# Neo-Voxy
+# Neo-Voxy REFORGED 5/9/26 - SERVER -> CLIENT LOD
 
 > ⚠️ **UNFINISHED PORT** - This is an experimental NeoForge port of the original Fabric Voxy mod. **Use at your own risk!**
 
