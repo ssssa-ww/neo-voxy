@@ -1,5 +1,16 @@
 # Neo-Voxy REFORGED 5/9/26 - SERVER -> CLIENT LOD
 
+this very unfinished port of neovoxy is beginning to reach a point where it will be released with full neoforge compat and server to client lod propogation. this was a great starting point that helped some people https://modrinth.com/plugin/voxy-server-side port to a fabric version of LOD streaming. which of course now im porting back to my neoforge build.
+
+we are having success and i see it releasing tomorrow 5/9/26 - get ready for a new era of neoforge.
+
+tons of thanks to mc/cortex i know im not loved by u but i love u
+
+xantha for making something of my spaghetti code.
+neovoxy reforged 5/9
+
+
+------------------------------
 > ⚠️ **UNFINISHED PORT** - This is an experimental NeoForge port of the original Fabric Voxy mod. **Use at your own risk!**
 
 Neo-Voxy is a NeoForge port of the Voxy mod, a far-distance rendering mod utilizing LODs (Level of Detail) for massive render distances. This port is currently in very early alpha and should be considered unstable.
