@@ -13,7 +13,7 @@ public class Logger {
     public static boolean INSERT_CLASS = true;
     public static boolean SHUTUP = false;
     public static boolean SHUTUP_INFO = false;
-    private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger("Voxy");
+    private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger("NeoVoxy");
 
 
     private static String callClsName() {

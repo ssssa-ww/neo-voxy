@@ -8,16 +8,13 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(ClientChunkCache.class)
 public class MixinClientChunkCache implements ICheekyClientChunkCache {
-    @Unique
-    private static final boolean BOBBY_INSTALLED = false;
-
     @Shadow
     volatile ClientChunkCache.Storage storage;
 
@@ -27,9 +24,30 @@ public class MixinClientChunkCache implements ICheekyClientChunkCache {
         return this.storage.getChunk(this.storage.getIndex(x, z));
     }
 
+    /**
+     * Ingest chunks into LOD system when they are received/loaded on the client.
+     * This is the primary path for client-side LOD generation.
+     */
+    @Inject(method = "replaceWithPacketData", at = @At("RETURN"))
+    public void voxy$captureChunkOnLoad(int x, int z,
+            net.minecraft.network.FriendlyByteBuf buf,
+            net.minecraft.nbt.CompoundTag tag,
+            java.util.function.Consumer<?> consumer,
+            CallbackInfoReturnable<LevelChunk> cir) {
+        if (VoxyConfig.CONFIG.ingestEnabled) {
+            var chunk = cir.getReturnValue();
+            if (chunk != null) {
+                VoxelIngestService.tryAutoIngestChunk(chunk);
+            }
+        }
+    }
+
+    /**
+     * Also capture chunks before they are unloaded as a fallback.
+     */
     @Inject(method = "drop", at = @At("HEAD"))
     public void voxy$captureChunkBeforeUnload(ChunkPos pos, CallbackInfo ci) {
-        if (VoxyConfig.CONFIG.ingestEnabled && BOBBY_INSTALLED) {
+        if (VoxyConfig.CONFIG.ingestEnabled) {
             var chunk = this.voxy$cheekyGetChunk(pos.x, pos.z);
             if (chunk != null) {
                 VoxelIngestService.tryAutoIngestChunk(chunk);

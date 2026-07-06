@@ -128,9 +128,9 @@ public class VoxyServerInstance extends VoxyInstance {
     private static Path getServerBasePath() {
         MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         if (server != null) {
-            return server.getWorldPath(LevelResource.ROOT).resolve("voxy").toAbsolutePath();
+            return server.getWorldPath(LevelResource.ROOT).resolve("neovoxy").toAbsolutePath();
         }
         // Fallback if server not yet available
-        return Path.of(".", "voxy").toAbsolutePath();
+        return Path.of(".", "neovoxy").toAbsolutePath();
     }
 }

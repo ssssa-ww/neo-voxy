@@ -7,6 +7,8 @@ import me.cortex.voxy.common.world.WorldEngine;
 import me.cortex.voxy.common.world.service.LodStreamingService;
 import me.cortex.voxy.commonImpl.VoxyCommon;
 import me.cortex.voxy.commonImpl.WorldIdentifier;
+import me.cortex.voxy.server.integration.ChunkyIntegration;
+import me.cortex.voxy.server.integration.DeferredChunkQueue;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -14,6 +16,7 @@ import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.level.ChunkDataEvent;
 import net.neoforged.neoforge.event.level.ChunkEvent;
 import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
@@ -37,6 +40,9 @@ public class VoxyServer {
 
     // Per-dimension streaming services
     private static final ConcurrentHashMap<ServerLevel, LodStreamingService> streamingServices = new ConcurrentHashMap<>();
+
+    // Per-dimension background auto-ingestors
+    private static final ConcurrentHashMap<ServerLevel, BackgroundAutoIngestor> autoIngestors = new ConcurrentHashMap<>();
 
     // Current server reference
     private static MinecraftServer currentServer;
@@ -65,6 +71,43 @@ public class VoxyServer {
 
         isInitialized = true;
         Logger.info("VoxyServer initialized - LOD streaming and generation enabled");
+
+        // Initialize Chunky integration if present
+        if (ChunkyIntegration.isChunkyLoaded()) {
+            DeferredChunkQueue.initialize(currentServer);
+            Logger.info("Chunky integration enabled - will defer LOD processing during generation");
+        }
+
+        // Start background auto-ingestors for all levels (dedicated server only)
+        // In singleplayer, the client handles LOD ingestion directly
+        if (VoxyCommon.IS_DEDICATED_SERVER) {
+            for (ServerLevel level : currentServer.getAllLevels()) {
+                startAutoIngestor(level);
+            }
+        }
+    }
+
+    /**
+     * Start background auto-ingestor for a level.
+     */
+    private static void startAutoIngestor(ServerLevel level) {
+        if (autoIngestors.containsKey(level))
+            return;
+
+        // Ensure WorldEngine exists for this level before starting auto-ingestor
+        // This is critical for dedicated servers to process existing region files
+        WorldIdentifier worldId = WorldIdentifier.of(level);
+        var instance = VoxyCommon.getInstance();
+        if (instance != null && worldId != null) {
+            var engine = instance.getOrCreate(worldId);
+            if (engine != null) {
+                Logger.info("Created WorldEngine for " + level.dimension().location() + " before auto-ingest");
+            }
+        }
+
+        var ingestor = new BackgroundAutoIngestor(level);
+        autoIngestors.put(level, ingestor);
+        ingestor.start();
     }
 
     /**
@@ -85,26 +128,95 @@ public class VoxyServer {
 
         // Get world identifier for this server level
         WorldIdentifier worldId = WorldIdentifier.of(serverLevel);
-        if (worldId == null)
+        if (worldId == null) {
+            Logger.warn("[VoxyServer] No WorldIdentifier for chunk at " + event.getChunk().getPos());
             return;
+        }
 
         // Check if Voxy instance is available
         var instance = VoxyCommon.getInstance();
-        if (instance == null)
+        if (instance == null) {
+            Logger.warn(
+                    "[VoxyServer] VoxyCommon instance is null, cannot ingest chunk at " + event.getChunk().getPos());
             return;
+        }
         if (!instance.isIngestEnabled(worldId))
             return;
 
         // Get or create the world engine for this level
         var engine = instance.getOrCreate(worldId);
-        if (engine == null)
+        if (engine == null) {
+            Logger.warn("[VoxyServer] WorldEngine is null for " + worldId + ", cannot ingest chunk");
             return;
+        }
 
         // Ingest the chunk into the LOD system
+
+        // Check if Chunky is actively generating - defer processing if so
+        if (ChunkyIntegration.shouldDeferProcessing()) {
+            DeferredChunkQueue.enqueue(worldId, levelChunk.getPos().x, levelChunk.getPos().z);
+            return;
+        }
+
         try {
-            instance.getIngestService().enqueueIngest(engine, levelChunk);
+            boolean result = instance.getIngestService().enqueueIngest(engine, levelChunk);
+            if (!result) {
+                // Chunk was not ingested - likely missing lighting data
+                // Queue it in the auto-ingestor for later processing from disk
+                // No need to log every rejection - this is expected for new chunks
+            }
         } catch (Exception e) {
             Logger.error("Failed to ingest server chunk at " + levelChunk.getPos(), e);
+        }
+    }
+
+    /**
+     * Handle chunk save events to process chunks AFTER they're written to disk.
+     * This provides a fallback for chunks that couldn't be ingested during load
+     * (e.g., because lighting wasn't ready yet).
+     */
+    @SubscribeEvent
+    public static void onChunkSave(ChunkDataEvent.Save event) {
+        if (!isInitialized)
+            return;
+
+        LevelAccessor level = event.getLevel();
+        if (!(level instanceof ServerLevel serverLevel))
+            return;
+
+        // Only process full LevelChunks
+        if (!(event.getChunk() instanceof LevelChunk levelChunk))
+            return;
+
+        // Try direct ingestion first - by save time, lighting should be ready
+        WorldIdentifier worldId = WorldIdentifier.of(serverLevel);
+        if (worldId != null) {
+            var instance = VoxyCommon.getInstance();
+            if (instance != null && instance.isIngestEnabled(worldId)) {
+                var engine = instance.getOrCreate(worldId);
+                if (engine != null) {
+                    try {
+                        // Check if Chunky is actively generating - defer if so
+                        if (!ChunkyIntegration.shouldDeferProcessing()) {
+                            instance.getIngestService().enqueueIngest(engine, levelChunk);
+                            return; // Success - no need to use AutoIngestor
+                        }
+                    } catch (Exception e) {
+                        // Fall through to auto-ingestor
+                    }
+                }
+            }
+        }
+
+        // Fallback: Notify auto-ingestor that a chunk was saved
+        var ingestor = autoIngestors.get(serverLevel);
+        if (ingestor != null) {
+            try {
+                ingestor.onChunkSaved(levelChunk);
+            } catch (Exception e) {
+                Logger.warn("Auto-ingestor failed to process saved chunk at " + levelChunk.getPos() + ": "
+                        + e.getMessage());
+            }
         }
     }
 
@@ -249,6 +361,19 @@ public class VoxyServer {
         }
         streamingServices.clear();
 
+        // Shutdown deferred chunk queue
+        DeferredChunkQueue.shutdown();
+
+        // Shutdown all background auto-ingestors
+        for (var ingestor : autoIngestors.values()) {
+            try {
+                ingestor.shutdown();
+            } catch (Exception e) {
+                Logger.error("Error closing auto-ingestor: " + e.getMessage());
+            }
+        }
+        autoIngestors.clear();
+
         // Shutdown VoxyCommon instance (dedicated server only)
         // In singleplayer, the client handles the instance lifecycle
         if (VoxyCommon.IS_DEDICATED_SERVER && VoxyCommon.getInstance() != null) {
@@ -281,6 +406,14 @@ public class VoxyServer {
     public static void onServerTick(ServerTickEvent.Post event) {
         // Tick chunk processors for generate command
         VoxyServerCommands.tickProcessors();
+
+        // Tick deferred chunk queue
+        DeferredChunkQueue.tick();
+
+        // Tick background auto-ingestors
+        for (var ingestor : autoIngestors.values()) {
+            ingestor.tick();
+        }
     }
 
     /**

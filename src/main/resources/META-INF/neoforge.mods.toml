@@ -4,39 +4,68 @@ license="ARR"
 issueTrackerURL="https://github.com/cortex/voxy/issues"
 
 [[mods]]
-modId="voxy"
+modId="neovoxy"
 version="${version}"
-displayName="Neo-Voxy"
+displayName="NeoVoxy"
 displayTest="IGNORE_SERVER_VERSION"
-logoFile="assets/voxy/icon.png"
+logoFile="assets/neovoxy/icon.png"
 authors="Cortex"
 description='''
 Far distance rendering mod utilizing LoDs for massive render distances.
 '''
 
-[[dependencies.voxy]]
+[[dependencies.neovoxy]]
 modId="neoforge"
 type="required"
 versionRange="[21.1.0,)"
 ordering="NONE"
 side="BOTH"
 
-[[dependencies.voxy]]
+[[dependencies.neovoxy]]
 modId="minecraft"
 type="required"
 versionRange="[1.21.1,1.21.2)"
 ordering="NONE"
 side="BOTH"
 
-[[dependencies.voxy]]
+[[dependencies.neovoxy]]
 modId="sodium"
 type="required"
 versionRange="[0.6.0,)"
 ordering="AFTER"
 side="CLIENT"
 
+[[mods]]
+modId="vss"
+version="0.2.7-neoforge-1.21.1"
+displayName="Voxy Server Side"
+displayTest="IGNORE_SERVER_VERSION"
+logoFile="assets/neovoxy/icon.png"
+authors="Xantha"
+credits="版本移植：wish"
+description='''
+NeoForge port of Voxy Server Side for synchronizing server chunk columns into Voxy clients.
+'''
+
+[[dependencies.vss]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.0,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.vss]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1,1.21.2)"
+ordering="NONE"
+side="BOTH"
+
 [[mixins]]
 config="voxy.mixins.json"
 
 [[mixins]]
 config="voxy-common.mixins.json"
+
+[[mixins]]
+config="vss.compat.mixins.json"
