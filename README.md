@@ -65,10 +65,6 @@ The following mixins from the original Fabric Voxy have been **removed** in this
 |-------|---------|
 | `nvidium.MixinRenderPipeline` | Nvidium render pipeline compatibility |
 
-### Chunky Integration (Removed)
-| Mixin | Purpose |
-|-------|---------|
-| `chunky.MixinFabricWorld` | Chunky pregenerator integration |
 
 ### Other Removed Mixins
 | Mixin | Purpose |
