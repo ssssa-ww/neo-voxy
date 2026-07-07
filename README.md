@@ -1,13 +1,11 @@
 # Neo-Voxy REFORGED
 
-this very unfinished port of neovoxy is beginning to reach a point where it will be released with full neoforge compat and server to client lod propogation. this was a great starting point that helped some people https://modrinth.com/plugin/voxy-server-side port to a fabric version of LOD streaming. which of course now im porting back to my neoforge build.
+this very experimental port of neovoxy is a side project.. this was a great starting point that helped some people https://modrinth.com/plugin/voxy-server-side port to a fabric version of LOD streaming.
 
-we are having success and i see it releasing tomorrow 5/9/26 - get ready for a new era of neoforge.
 
 tons of thanks to mc/cortex i know im not loved by u but i love u
 
 xantha for making something of my spaghetti code.
-neovoxy reforged 5/9
 
 
 ------------------------------
