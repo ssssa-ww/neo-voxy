@@ -11,7 +11,7 @@ neovoxy reforged 5/9
 
 
 ------------------------------
-> ⚠️ **UNFINISHED PORT** - This is an experimental NeoForge port of the original Fabric Voxy mod. **Use at your own risk!**
+> **Complete EXPERIMENTAL PORT** - This is an experimental NeoForge port of the original Fabric Voxy mod. **Use at your own risk!**
 
 Neo-Voxy is a NeoForge port of the Voxy mod, a far-distance rendering mod utilizing LODs (Level of Detail) for massive render distances. This port is currently in very early alpha and should be considered unstable.
 
