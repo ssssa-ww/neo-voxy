@@ -310,10 +310,12 @@ configurations {
 
 dependencies {
     // Download natives for repackaging (module-info.class will be stripped)
+    lwjglNativesRaw "org.lwjgl:lwjgl:$lwjglVersion:natives-windows"
     lwjglNativesRaw "org.lwjgl:lwjgl-lmdb:$lwjglVersion:natives-windows"
     lwjglNativesRaw "org.lwjgl:lwjgl-zstd:$lwjglVersion:natives-windows"
     lwjglNativesRaw "org.lwjgl:lwjgl-lmdb:$lwjglVersion:natives-linux"
     lwjglNativesRaw "org.lwjgl:lwjgl-zstd:$lwjglVersion:natives-linux"
+    lwjglNativesRaw "org.lwjgl:lwjgl:$lwjglVersion:natives-linux"
 }
 
 // Task to extract LWJGL native binaries (DLLs/SOs) from native JARs
@@ -372,8 +374,10 @@ tasks.named('jar') {
 dependencies {
     implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
 
-    // LWJGL core - provided by Minecraft
-    implementation "org.lwjgl:lwjgl"
+    // LWJGL core - required by Voxy on server, not provided by Minecraft server
+    jarJar(implementation("org.lwjgl:lwjgl:$lwjglVersion")) {
+        version { strictly "[3.3.0,4.0.0)"; prefer "$lwjglVersion" }
+    }
 
     // LWJGL-LMDB and LWJGL-ZSTD - Required by Voxy, NOT provided by Minecraft
     // Reference: https://docs.neoforged.net/toolchain/docs/dependencies/nonmclibs/
@@ -387,11 +391,14 @@ dependencies {
         version { strictly "[3.3.0,4.0.0)"; prefer "$lwjglVersion" }
     }
     // Add to runtime classpath for MC 1.21.1 (not needed for 1.21.9+)
+    additionalRuntimeClasspath "org.lwjgl:lwjgl:$lwjglVersion"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-lmdb:$lwjglVersion"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-zstd:$lwjglVersion"
     // Natives also need to be on runtime classpath (LWJGL extracts from classpath)
+    additionalRuntimeClasspath "org.lwjgl:lwjgl:$lwjglVersion:natives-windows"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-lmdb:$lwjglVersion:natives-windows"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-zstd:$lwjglVersion:natives-windows"
+    additionalRuntimeClasspath "org.lwjgl:lwjgl:$lwjglVersion:natives-linux"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-lmdb:$lwjglVersion:natives-linux"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-zstd:$lwjglVersion:natives-linux"
 
