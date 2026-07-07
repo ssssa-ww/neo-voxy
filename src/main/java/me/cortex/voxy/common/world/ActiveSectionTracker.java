@@ -230,7 +230,7 @@ public class ActiveSectionTracker {
                     }
                     section.release(false);//Special
                 } else {
-                    throw new IllegalStateException("Section was dirty but is also unloaded, this is very bad");
+                    Logger.warn("Section was dirty but is also unloaded: " + WorldEngine.pprintPos(section.key));
                 }
             }
             if (section.getRefCount() == 0 && section.trySetFreed()) {
@@ -290,6 +290,30 @@ public class ActiveSectionTracker {
 
     public int getSecondaryCacheSize() {
         return this.lruSecondaryCache.size();
+    }
+
+    public void saveDirtySections() {
+        if (this.engine == null) return;
+        for (int i = 0; i < this.loadedSectionCache.length; i++) {
+            var cache = this.loadedSectionCache[i];
+            var lock = this.locks[i];
+            long stamp = lock.writeLock();
+            try {
+                for (var holder : cache.values()) {
+                    var section = holder.obj;
+                    if (section != null && section.isDirty) {
+                        if (section.tryAcquire()) {
+                            if (section.setNotDirty()) {
+                                this.engine.saveSection(section);
+                            }
+                            section.release(false);
+                        }
+                    }
+                }
+            } finally {
+                lock.unlockWrite(stamp);
+            }
+        }
     }
 
     public static void main(String[] args) throws InterruptedException {

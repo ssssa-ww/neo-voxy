@@ -18,9 +18,9 @@ public class ShaderLoader {
             ns = "neovoxy";
         }
         String path = id.split(":")[1];
-        String resourcePath = "/assets/" + ns + "/shaders/" + path;
+        String resourcePath = "assets/" + ns + "/shaders/" + path;
 
-        try (InputStream stream = ShaderLoader.class.getResourceAsStream(resourcePath)) {
+        try (InputStream stream = ShaderLoader.class.getClassLoader().getResourceAsStream(resourcePath)) {
             if (stream == null) {
                 throw new RuntimeException("Shader not found: " + resourcePath);
             }

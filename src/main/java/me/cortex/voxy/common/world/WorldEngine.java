@@ -248,4 +248,10 @@ public class WorldEngine {
             this.saveCallback.save(this, section);
         }
     }
+
+    public void saveDirtySections() {
+        if (this.isLive) {
+            this.sectionTracker.saveDirtySections();
+        }
+    }
 }

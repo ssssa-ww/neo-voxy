@@ -295,4 +295,39 @@ public abstract class VoxyInstance {
     public boolean isIngestEnabled(WorldIdentifier worldId) {
         return true;
     }
+
+    public void flush() {
+        if (!this.isRunning) return;
+
+        // 1. Enqueue all dirty sections from all active worlds
+        long stamp = this.activeWorldLock.readLock();
+        try {
+            for (var world : this.activeWorlds.values()) {
+                world.saveDirtySections();
+            }
+        } finally {
+            this.activeWorldLock.unlockRead(stamp);
+        }
+
+        // 2. Block until the saving service has written all enqueued sections
+        try {
+            this.savingService.flush();
+        } catch (Exception e) {
+            Logger.error("Failed to flush saving service", e);
+        }
+
+        // 3. Flush storage backends for all active worlds
+        stamp = this.activeWorldLock.readLock();
+        try {
+            for (var world : this.activeWorlds.values()) {
+                try {
+                    world.storage.flush();
+                } catch (Exception e) {
+                    Logger.error("Failed to flush world storage", e);
+                }
+            }
+        } finally {
+            this.activeWorldLock.unlockRead(stamp);
+        }
+    }
 }

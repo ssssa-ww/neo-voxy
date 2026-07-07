@@ -79,6 +79,16 @@ public class LodReceptionService implements AutoCloseable {
             return t;
         });
 
+        // Pre-populate receivedSections from disk database asynchronously to prevent re-transfer on rejoin
+        this.processingExecutor.submit(() -> {
+            try {
+                this.worldEngine.storage.iterateStoredSectionPositions(this.receivedSections::add);
+                Logger.info("Pre-loaded " + this.receivedSections.size() + " cached section positions from local storage");
+            } catch (Exception e) {
+                Logger.error("Failed to load cached section positions: " + e.getMessage());
+            }
+        });
+
         // Register client message handler
         VoxyNetworkHandler.setClientMessageHandler(this::handleServerMessage);
 
@@ -305,16 +315,16 @@ public class LodReceptionService implements AutoCloseable {
      * ready.
      */
     private void processPendingSections() {
-        // Create a temporary list to avoid ConcurrentModificationException
-        // and to allow processing in batches
-        Set<Long> sectionsToProcess = ConcurrentHashMap.newKeySet();
-        for (Long key : pendingSections.keySet()) {
-            sectionsToProcess.add(key);
-        }
-
-        for (Long key : sectionsToProcess) {
-            byte[] data = pendingSections.get(key);
+        int checked = 0;
+        int maxChecksPerTick = 16;
+        for (var entry : pendingSections.entrySet()) {
+            if (checked >= maxChecksPerTick) {
+                break;
+            }
+            long key = entry.getKey();
+            byte[] data = entry.getValue();
             if (data != null) {
+                checked++;
                 try {
                     SectionSerializer.SectionData sectionData = SectionSerializer.deserialize(data);
                     if (sectionData != null && areModelsAvailable(sectionData.voxelData)) {

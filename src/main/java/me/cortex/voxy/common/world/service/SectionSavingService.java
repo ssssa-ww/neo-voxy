@@ -71,6 +71,13 @@ public class SectionSavingService {
         }
     }
 
+    public void flush() {
+        this.service.blockTillEmpty();
+        while (!this.saveQueue.isEmpty()) {
+            this.processJob();
+        }
+    }
+
     public void shutdown() {
         if (this.service.numJobs() != 0) {
             Logger.error("Voxy section saving still in progress, estimated " + this.service.numJobs() + " sections remaining.");

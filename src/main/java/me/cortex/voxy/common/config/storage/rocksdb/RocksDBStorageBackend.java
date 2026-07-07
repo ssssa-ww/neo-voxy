@@ -129,6 +129,10 @@ public class RocksDBStorageBackend extends StorageBackend {
             }
         } finally {
             iter.close();
+            java.lang.ref.Reference.reachabilityFence(this.db);
+            java.lang.ref.Reference.reachabilityFence(this.worldSections);
+            java.lang.ref.Reference.reachabilityFence(this.sectionReadOps);
+            java.lang.ref.Reference.reachabilityFence(iter);
         }
     }
 
