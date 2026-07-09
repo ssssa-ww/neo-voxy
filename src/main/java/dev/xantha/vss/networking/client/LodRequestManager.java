@@ -1896,6 +1896,10 @@ public final class LodRequestManager {
         retryBackoff.clear(packed);
     }
 
+    public synchronized int getInFlightCount() {
+        return inFlight.size();
+    }
+
     public record ColumnReceiveResult(boolean knownRequest, boolean priority, boolean replaceExistingColumn, long packedPosition) {
     }
 }

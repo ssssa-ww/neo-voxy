@@ -285,6 +285,38 @@ public final class VSSServerNetworking {
         CONTROL_MESSAGE_HANDLER.handleRegionPresence(player, payload);
     }
 
+    private static java.util.UUID cachedWorldUUID = null;
+
+    public static synchronized java.util.UUID getOrCreateWorldUUID() {
+        if (cachedWorldUUID != null) {
+            return cachedWorldUUID;
+        }
+        MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server == null) {
+            return new java.util.UUID(0L, 0L);
+        }
+        java.nio.file.Path basePath = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT).resolve("neovoxy");
+        java.nio.file.Path uuidFile = basePath.resolve("vss_world_uuid.txt");
+        try {
+            java.nio.file.Files.createDirectories(basePath);
+            if (java.nio.file.Files.exists(uuidFile)) {
+                String content = java.nio.file.Files.readString(uuidFile).trim();
+                cachedWorldUUID = java.util.UUID.fromString(content);
+                return cachedWorldUUID;
+            }
+        } catch (Exception e) {
+            // fallback
+        }
+        java.util.UUID newUuid = java.util.UUID.randomUUID();
+        try {
+            java.nio.file.Files.writeString(uuidFile, newUuid.toString());
+            cachedWorldUUID = newUuid;
+        } catch (Exception e) {
+            // ignore
+        }
+        return newUuid;
+    }
+
     @SubscribeEvent
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
@@ -299,11 +331,13 @@ public final class VSSServerNetworking {
 
     @SubscribeEvent
     public static void onServerStarting(ServerStartingEvent event) {
+        cachedWorldUUID = null;
         SERVER_RUNTIME.onServerStarting();
     }
 
     @SubscribeEvent
     public static void onServerStopping(ServerStoppingEvent event) {
+        cachedWorldUUID = null;
         SERVER_RUNTIME.onServerStopping(event.getServer());
     }
 

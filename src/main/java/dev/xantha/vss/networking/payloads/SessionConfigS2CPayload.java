@@ -18,7 +18,8 @@ public record SessionConfigS2CPayload(
         int generationConcurrencyLimitPerPlayer,
         boolean generationEnabled,
         long playerBandwidthLimit,
-        long configRevision) implements CustomPacketPayload {
+        long configRevision,
+        java.util.UUID worldUUID) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<SessionConfigS2CPayload> TYPE = VSSPayloadCodecs.type("session_config");
     public static final StreamCodec<RegistryFriendlyByteBuf, SessionConfigS2CPayload> STREAM_CODEC =
             VSSPayloadCodecs.codec(SessionConfigS2CPayload::encode, SessionConfigS2CPayload::decode);
@@ -42,6 +43,7 @@ public record SessionConfigS2CPayload(
         buf.writeBoolean(payload.generationEnabled);
         buf.writeVarLong(payload.playerBandwidthLimit);
         buf.writeVarLong(payload.configRevision);
+        buf.writeUUID(payload.worldUUID);
     }
 
     public static SessionConfigS2CPayload decode(FriendlyByteBuf buf) {
@@ -58,6 +60,7 @@ public record SessionConfigS2CPayload(
                 buf.readVarInt(),
                 buf.readBoolean(),
                 buf.readVarLong(),
-                buf.readVarLong());
+                buf.readVarLong(),
+                buf.readUUID());
     }
 }

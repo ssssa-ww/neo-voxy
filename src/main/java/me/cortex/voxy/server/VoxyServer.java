@@ -45,6 +45,10 @@ public class VoxyServer {
     // Per-dimension background auto-ingestors
     private static final ConcurrentHashMap<ServerLevel, BackgroundAutoIngestor> autoIngestors = new ConcurrentHashMap<>();
 
+    public static java.util.Map<ServerLevel, BackgroundAutoIngestor> getAutoIngestors() {
+        return autoIngestors;
+    }
+
     // Current server reference
     private static MinecraftServer currentServer;
 
@@ -79,12 +83,9 @@ public class VoxyServer {
             Logger.info("Chunky integration enabled - will defer LOD processing during generation");
         }
 
-        // Start background auto-ingestors for all levels (dedicated server only)
-        // In singleplayer, the client handles LOD ingestion directly
-        if (VoxyCommon.IS_DEDICATED_SERVER) {
-            for (ServerLevel level : currentServer.getAllLevels()) {
-                startAutoIngestor(level);
-            }
+        // Start background auto-ingestors for all levels
+        for (ServerLevel level : currentServer.getAllLevels()) {
+            startAutoIngestor(level);
         }
     }
 

@@ -3,13 +3,13 @@ package dev.xantha.vss.networking.server.state;
 
 import dev.xantha.vss.networking.server.storage.PersistentColumnLodStore;
 import dev.xantha.vss.common.PositionUtil;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.NavigableSet;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
@@ -19,8 +19,8 @@ public final class PreloadColumnFrontier {
             .thenComparingInt(column -> column.column().chunkX())
             .thenComparingInt(column -> column.column().chunkZ());
 
-    private final Map<Long, PlayerRequestState.PreloadColumn> columns = new HashMap<>();
-    private final Set<Long> positions = new HashSet<>();
+    private final Long2ObjectMap<PlayerRequestState.PreloadColumn> columns = new Long2ObjectOpenHashMap<>();
+    private final LongOpenHashSet positions = new LongOpenHashSet();
     private final TreeMap<Integer, NavigableSet<BucketedColumn>> columnsByRing = new TreeMap<>();
     private final TreeMap<Integer, Integer> regionScansInFlight = new TreeMap<>();
     private int readsInFlight;

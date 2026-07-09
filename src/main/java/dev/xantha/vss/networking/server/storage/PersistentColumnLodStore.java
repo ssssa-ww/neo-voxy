@@ -853,11 +853,33 @@ public final class PersistentColumnLodStore {
 
     private static final class RegionIndex {
         private final long[] presentBitmap = new long[REGION_BITMAP_LONGS];
-        private final IndexSlot[] slots = new IndexSlot[REGION_SLOT_COUNT];
+        private long[] timestamps = null;
+        private byte[] methods = null;
+        private int[] rawSizes = null;
+        private byte[] schemaVersions = null;
+        private int[] lengths = null;
+
+        private void ensureArrays() {
+            if (timestamps == null) {
+                timestamps = new long[REGION_SLOT_COUNT];
+                methods = new byte[REGION_SLOT_COUNT];
+                rawSizes = new int[REGION_SLOT_COUNT];
+                schemaVersions = new byte[REGION_SLOT_COUNT];
+                lengths = new int[REGION_SLOT_COUNT];
+            }
+        }
 
         synchronized IndexSlot slot(int cx, int cz) {
             int localIndex = localIndex(cx, cz);
-            return hasBit(presentBitmap, localIndex) ? slots[localIndex] : null;
+            if (!hasBit(presentBitmap, localIndex) || timestamps == null) {
+                return null;
+            }
+            return new IndexSlot(
+                    timestamps[localIndex],
+                    methods[localIndex] & 0xFF,
+                    rawSizes[localIndex],
+                    schemaVersions[localIndex] & 0xFF,
+                    lengths[localIndex]);
         }
 
         synchronized boolean put(int cx, int cz, IndexSlot slot) {
@@ -865,11 +887,21 @@ public final class PersistentColumnLodStore {
         }
 
         synchronized boolean putLocal(int localIndex, IndexSlot slot) {
-            IndexSlot previous = hasBit(presentBitmap, localIndex) ? slots[localIndex] : null;
-            if (slot.equals(previous)) {
-                return false;
+            if (hasBit(presentBitmap, localIndex) && timestamps != null) {
+                if (timestamps[localIndex] == slot.timestamp()
+                        && (methods[localIndex] & 0xFF) == slot.method()
+                        && rawSizes[localIndex] == slot.rawSize()
+                        && (schemaVersions[localIndex] & 0xFF) == slot.schemaVersion()
+                        && lengths[localIndex] == slot.length()) {
+                    return false;
+                }
             }
-            slots[localIndex] = slot;
+            ensureArrays();
+            timestamps[localIndex] = slot.timestamp();
+            methods[localIndex] = (byte) slot.method();
+            rawSizes[localIndex] = slot.rawSize();
+            schemaVersions[localIndex] = (byte) slot.schemaVersion();
+            lengths[localIndex] = slot.length();
             setBit(presentBitmap, localIndex);
             return true;
         }
@@ -879,7 +911,6 @@ public final class PersistentColumnLodStore {
             if (!hasBit(presentBitmap, localIndex)) {
                 return false;
             }
-            slots[localIndex] = null;
             clearBit(presentBitmap, localIndex);
             return true;
         }
@@ -888,16 +919,17 @@ public final class PersistentColumnLodStore {
             for (long bits : presentBitmap) {
                 out.writeLong(bits);
             }
-            for (int i = 0; i < REGION_SLOT_COUNT; i++) {
-                if (!hasBit(presentBitmap, i)) {
-                    continue;
+            if (timestamps != null) {
+                for (int i = 0; i < REGION_SLOT_COUNT; i++) {
+                    if (!hasBit(presentBitmap, i)) {
+                        continue;
+                    }
+                    out.writeLong(timestamps[i]);
+                    out.writeInt(methods[i] & 0xFF);
+                    out.writeInt(rawSizes[i]);
+                    out.writeInt(schemaVersions[i] & 0xFF);
+                    out.writeInt(lengths[i]);
                 }
-                IndexSlot slot = slots[i];
-                out.writeLong(slot.timestamp());
-                out.writeInt(slot.method());
-                out.writeInt(slot.rawSize());
-                out.writeInt(slot.schemaVersion());
-                out.writeInt(slot.length());
             }
         }
 
@@ -909,13 +941,21 @@ public final class PersistentColumnLodStore {
                 int centerCz,
                 int minDistance,
                 int maxDistance) {
+            if (timestamps == null) {
+                return;
+            }
             int baseX = regionX * REGION_SIZE;
             int baseZ = regionZ * REGION_SIZE;
             for (int localIndex = 0; localIndex < REGION_SLOT_COUNT; localIndex++) {
                 if (!hasBit(presentBitmap, localIndex)) {
                     continue;
                 }
-                IndexSlot slot = slots[localIndex];
+                IndexSlot slot = new IndexSlot(
+                        timestamps[localIndex],
+                        methods[localIndex] & 0xFF,
+                        rawSizes[localIndex],
+                        schemaVersions[localIndex] & 0xFF,
+                        lengths[localIndex]);
                 if (!isReadableSlot(slot, 0L)) {
                     continue;
                 }

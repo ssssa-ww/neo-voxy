@@ -20,6 +20,9 @@ public final class LodByteCompression {
     private static volatile ZstdBridge zstdBridge;
     private static volatile boolean zstdInitialized;
 
+    private static final ThreadLocal<Deflater> THREAD_DEFLATER = ThreadLocal.withInitial(() -> new Deflater(Deflater.BEST_SPEED));
+    private static final ThreadLocal<Inflater> THREAD_INFLATER = ThreadLocal.withInitial(Inflater::new);
+
     private LodByteCompression() {
     }
 
@@ -71,31 +74,28 @@ public final class LodByteCompression {
             }
         }
 
-        Deflater deflater = new Deflater(Deflater.BEST_SPEED);
-        try {
-            deflater.setInput(input);
-            deflater.finish();
-            ByteArrayOutputStream output = new ByteArrayOutputStream(Math.max(32, input.length / 2));
-            byte[] buffer = new byte[Math.min(BUFFER_SIZE, input.length)];
-            while (!deflater.finished()) {
-                int count = deflater.deflate(buffer);
-                if (count <= 0) {
-                    break;
-                }
-                output.write(buffer, 0, count);
-                if (output.size() + MIN_SAVINGS_BYTES >= input.length) {
-                    return Result.raw(input);
-                }
+        Deflater deflater = THREAD_DEFLATER.get();
+        deflater.reset();
+        deflater.setInput(input);
+        deflater.finish();
+        ByteArrayOutputStream output = new ByteArrayOutputStream(Math.max(32, input.length / 2));
+        byte[] buffer = new byte[Math.min(BUFFER_SIZE, input.length)];
+        while (!deflater.finished()) {
+            int count = deflater.deflate(buffer);
+            if (count <= 0) {
+                break;
             }
-
-            byte[] compressed = output.toByteArray();
-            if (compressed.length + MIN_SAVINGS_BYTES >= input.length) {
+            output.write(buffer, 0, count);
+            if (output.size() + MIN_SAVINGS_BYTES >= input.length) {
                 return Result.raw(input);
             }
-            return new Result(compressed, METHOD_DEFLATE, input.length);
-        } finally {
-            deflater.end();
         }
+
+        byte[] compressed = output.toByteArray();
+        if (compressed.length + MIN_SAVINGS_BYTES >= input.length) {
+            return Result.raw(input);
+        }
+        return new Result(compressed, METHOD_DEFLATE, input.length);
     }
 
     public static byte[] decompress(byte[] compressed, int method, int expectedLength, int maxLength) throws IOException {
@@ -118,7 +118,8 @@ public final class LodByteCompression {
             return new byte[0];
         }
 
-        Inflater inflater = new Inflater();
+        Inflater inflater = THREAD_INFLATER.get();
+        inflater.reset();
         try {
             inflater.setInput(compressed);
             byte[] output = new byte[expectedLength];
@@ -140,8 +141,6 @@ public final class LodByteCompression {
             return output;
         } catch (DataFormatException e) {
             throw new IOException("Invalid compressed LOD data", e);
-        } finally {
-            inflater.end();
         }
     }
 

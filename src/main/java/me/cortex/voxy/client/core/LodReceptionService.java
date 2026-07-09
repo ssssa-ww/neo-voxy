@@ -59,6 +59,7 @@ public class LodReceptionService implements AutoCloseable {
 
     /** Sections pending processing because models aren't ready yet */
     private final ConcurrentHashMap<Long, byte[]> pendingSections = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Integer> pendingRetries = new ConcurrentHashMap<>();
 
     /** Whether the mapper has been synced (required for processing) */
     private volatile boolean mapperReady = false;
@@ -316,7 +317,21 @@ public class LodReceptionService implements AutoCloseable {
      */
     private void processPendingSections() {
         int checked = 0;
-        int maxChecksPerTick = 16;
+        int maxChecksPerTick;
+        int speed = dev.xantha.vss.config.VSSClientConfig.CONFIG.lodPropagationSpeed;
+        if (speed == 1) {
+            maxChecksPerTick = 8;
+        } else if (speed == 2) {
+            maxChecksPerTick = 32;
+        } else if (speed == 3) {
+            maxChecksPerTick = 96;
+        } else if (speed == 4) {
+            maxChecksPerTick = 256;
+        } else if (speed == 5) {
+            maxChecksPerTick = 512;
+        } else {
+            maxChecksPerTick = 2048;
+        }
         for (var entry : pendingSections.entrySet()) {
             if (checked >= maxChecksPerTick) {
                 break;
@@ -329,14 +344,23 @@ public class LodReceptionService implements AutoCloseable {
                     SectionSerializer.SectionData sectionData = SectionSerializer.deserialize(data);
                     if (sectionData != null && areModelsAvailable(sectionData.voxelData)) {
                         pendingSections.remove(key);
+                        pendingRetries.remove(key);
                         // Submit to processing executor to maintain consistent processing flow
                         processingExecutor.submit(() -> processSection(data));
+                    } else {
+                        int retries = pendingRetries.compute(key, (k, v) -> v == null ? 1 : v + 1);
+                        if (retries > 200) { // 10 seconds at 20 ticks/sec
+                            pendingSections.remove(key);
+                            pendingRetries.remove(key);
+                            processingExecutor.submit(() -> processSection(data));
+                        }
                     }
                 } catch (Exception e) {
                     Logger.error(
                             "Error re-processing pending section " + Long.toHexString(key) + ": " + e.getMessage());
                     Logger.error(e);
                     pendingSections.remove(key); // Remove to avoid infinite retries on error
+                    pendingRetries.remove(key);
                 }
             }
         }
@@ -398,6 +422,10 @@ public class LodReceptionService implements AutoCloseable {
         receivedSections.clear();
         idRemapper.reset();
         Logger.info("LodReceptionService closed");
+    }
+
+    public int getPendingSectionsCount() {
+        return pendingSections.size();
     }
 
     /**

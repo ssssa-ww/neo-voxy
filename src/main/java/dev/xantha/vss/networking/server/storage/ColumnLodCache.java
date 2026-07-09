@@ -2,16 +2,18 @@ package dev.xantha.vss.networking.server.storage;
 
 import dev.xantha.vss.config.VSSServerConfig;
 import dev.xantha.vss.common.processing.EncodedColumnData;
+import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.List;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 
 public final class ColumnLodCache {
     private final VSSServerConfig config;
-    private final LinkedHashMap<Key, Entry> entries = new LinkedHashMap<>(1024, 0.75F, true);
+    private final Long2ObjectLinkedOpenHashMap<Entry> entries = new Long2ObjectLinkedOpenHashMap<>(1024);
+    private final List<ResourceLocation> dimensionRegistry = new ArrayList<>();
     private long cachedBytes;
     private long hits;
     private long misses;
@@ -19,8 +21,29 @@ public final class ColumnLodCache {
     private long evictions;
     private long invalidations;
 
+    private static final int OFFSET = 1 << 27;
+
     public ColumnLodCache(VSSServerConfig config) {
         this.config = config;
+    }
+
+    private int getDimensionId(ResourceLocation dimension) {
+        int id = dimensionRegistry.indexOf(dimension);
+        if (id == -1) {
+            id = dimensionRegistry.size();
+            dimensionRegistry.add(dimension);
+        }
+        return id;
+    }
+
+    private long getPackedKey(ResourceLocation dimension, int cx, int cz) {
+        return packKey(getDimensionId(dimension), cx, cz);
+    }
+
+    public static long packKey(int dimensionId, int cx, int cz) {
+        long x = cx + OFFSET;
+        long z = cz + OFFSET;
+        return ((long) (dimensionId & 0xFF) << 56) | (x << 28) | z;
     }
 
     public synchronized Entry get(ResourceKey<Level> dimension, int cx, int cz) {
@@ -28,10 +51,12 @@ public final class ColumnLodCache {
             return null;
         }
 
-        Entry entry = entries.get(new Key(dimension.location(), cx, cz));
+        long packedKey = getPackedKey(dimension.location(), cx, cz);
+        Entry entry = entries.get(packedKey);
         if (entry == null) {
             misses++;
         } else {
+            entries.putAndMoveToLast(packedKey, entry);
             hits++;
         }
         return entry;
@@ -47,18 +72,18 @@ public final class ColumnLodCache {
             return;
         }
 
-        Key key = new Key(dimension.location(), columnData.chunkX(), columnData.chunkZ());
-        Entry previous = entries.remove(key);
+        long packedKey = getPackedKey(dimension.location(), columnData.chunkX(), columnData.chunkZ());
+        Entry previous = entries.remove(packedKey);
         if (previous != null) {
             if (previous.timestamp() > columnData.columnStamp()) {
-                entries.put(key, previous);
+                entries.putAndMoveToLast(packedKey, previous);
                 return;
             }
             cachedBytes -= previous.sizeBytes();
         }
 
         byte[] cachedSections = Arrays.copyOf(columnData.encodedBytes(), columnData.encodedBytes().length);
-        entries.put(key, new Entry(
+        entries.putAndMoveToLast(packedKey, new Entry(
                 columnData.chunkX(),
                 columnData.chunkZ(),
                 columnData.columnStamp(),
@@ -74,7 +99,8 @@ public final class ColumnLodCache {
     }
 
     public synchronized void invalidate(ResourceKey<Level> dimension, int cx, int cz) {
-        Entry removed = entries.remove(new Key(dimension.location(), cx, cz));
+        long packedKey = getPackedKey(dimension.location(), cx, cz);
+        Entry removed = entries.remove(packedKey);
         if (removed != null) {
             cachedBytes -= removed.sizeBytes();
             invalidations++;
@@ -82,12 +108,12 @@ public final class ColumnLodCache {
     }
 
     public synchronized void invalidateOlderThan(ResourceKey<Level> dimension, int cx, int cz, long minimumInvalidTimestamp) {
-        Key key = new Key(dimension.location(), cx, cz);
-        Entry entry = entries.get(key);
+        long packedKey = getPackedKey(dimension.location(), cx, cz);
+        Entry entry = entries.get(packedKey);
         if (entry == null || entry.timestamp() >= minimumInvalidTimestamp) {
             return;
         }
-        entries.remove(key);
+        entries.remove(packedKey);
         cachedBytes -= entry.sizeBytes();
         invalidations++;
     }
@@ -112,14 +138,10 @@ public final class ColumnLodCache {
     private void evictOverflow() {
         while ((entries.size() > config.columnCacheMaxEntries || cachedBytes > config.columnCacheMaxBytes)
                 && !entries.isEmpty()) {
-            Map.Entry<Key, Entry> eldest = entries.entrySet().iterator().next();
-            cachedBytes -= eldest.getValue().sizeBytes();
-            entries.remove(eldest.getKey());
+            Entry eldestValue = entries.removeFirst();
+            cachedBytes -= eldestValue.sizeBytes();
             evictions++;
         }
-    }
-
-    private record Key(ResourceLocation dimension, int chunkX, int chunkZ) {
     }
 
     public record Entry(

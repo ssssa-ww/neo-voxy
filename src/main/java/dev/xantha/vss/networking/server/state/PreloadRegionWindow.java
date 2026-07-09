@@ -1,22 +1,20 @@
 package dev.xantha.vss.networking.server.state;
 
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
 import java.util.Queue;
-import java.util.Set;
 import java.util.function.LongSupplier;
 
 public final class PreloadRegionWindow {
     private static final long PRELOAD_REGION_RETAIN_NANOS = 3_000_000_000L;
 
     private final Queue<PlayerRequestState.PreloadRegion> regions = new ArrayDeque<>();
-    private final Set<Long> queuedRegionKeys = new HashSet<>();
-    private final Set<Long> coveredRegionKeys = new HashSet<>();
-    private final Map<Long, Long> retainedRegionDeadlines = new HashMap<>();
+    private final LongOpenHashSet queuedRegionKeys = new LongOpenHashSet();
+    private final LongOpenHashSet coveredRegionKeys = new LongOpenHashSet();
+    private final Long2LongOpenHashMap retainedRegionDeadlines = new Long2LongOpenHashMap();
     private final LongSupplier nanoClock;
     private Object dimension;
     private boolean initialized;
@@ -34,6 +32,7 @@ public final class PreloadRegionWindow {
 
     public PreloadRegionWindow(LongSupplier nanoClock) {
         this.nanoClock = nanoClock;
+        this.retainedRegionDeadlines.defaultReturnValue(-1L);
     }
 
     public synchronized void reset(Object dimension, int centerRegionX, int centerRegionZ, int maxRegionRing) {
@@ -215,7 +214,11 @@ public final class PreloadRegionWindow {
             return false;
         }
 
-        long deadline = retainedRegionDeadlines.computeIfAbsent(key, ignored -> now + PRELOAD_REGION_RETAIN_NANOS);
+        long deadline = retainedRegionDeadlines.get(key);
+        if (deadline == -1L) {
+            deadline = now + PRELOAD_REGION_RETAIN_NANOS;
+            retainedRegionDeadlines.put(key, deadline);
+        }
         if (now < deadline) {
             return false;
         }

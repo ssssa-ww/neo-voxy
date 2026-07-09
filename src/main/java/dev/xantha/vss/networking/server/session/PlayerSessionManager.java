@@ -128,7 +128,8 @@ public final class PlayerSessionManager {
                 config.generationConcurrencyLimitPerPlayer,
                 config.enableChunkGeneration,
                 config.bandwidthBytesPerSecond(),
-                configRevision.get());
+                configRevision.get(),
+                VSSServerNetworking.getOrCreateWorldUUID());
     }
 
     private static int serverCapabilities() {

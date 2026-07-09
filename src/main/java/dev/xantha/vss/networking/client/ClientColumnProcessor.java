@@ -24,8 +24,33 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 final class ClientColumnProcessor {
     static final int MAX_QUEUED_COLUMNS = 1024;
     private static final long MAX_QUEUED_BYTES = 32L * 1024L * 1024L;
-    private static final int MAX_COLUMNS_PER_DRAIN = 64;
-    private static final int MAX_SECTIONS_DISPATCHED_PER_DRAIN = 768;
+
+    private static int getMaxColumnsPerDrain() {
+        int speed = VSSClientConfig.CONFIG.lodPropagationSpeed;
+        return switch (speed) {
+            case 1 -> 16;
+            case 2 -> 64;
+            case 3 -> 128;
+            case 4 -> 256;
+            case 5 -> 512;
+            case 6 -> 1024;
+            default -> 64;
+        };
+    }
+
+    private static int getMaxSectionsDispatchedPerDrain() {
+        int speed = VSSClientConfig.CONFIG.lodPropagationSpeed;
+        return switch (speed) {
+            case 1 -> 192;
+            case 2 -> 768;
+            case 3 -> 1536;
+            case 4 -> 3072;
+            case 5 -> 6144;
+            case 6 -> 12288;
+            default -> 768;
+        };
+    }
+
     private static final int MAX_SECTIONS_PER_COLUMN = 64;
     private static final long DROP_WARN_INTERVAL_MS = 5000L;
     private static final int SECTION_POOL_SIZE = 128;
@@ -191,8 +216,10 @@ final class ClientColumnProcessor {
         QueuedColumn queuedColumn;
         int processedColumns = 0;
         int dispatchedSections = 0;
-        while (processedColumns < MAX_COLUMNS_PER_DRAIN
-                && dispatchedSections < MAX_SECTIONS_DISPATCHED_PER_DRAIN
+        int maxColumnsPerDrain = getMaxColumnsPerDrain();
+        int maxSectionsDispatchedPerDrain = getMaxSectionsDispatchedPerDrain();
+        while (processedColumns < maxColumnsPerDrain
+                && dispatchedSections < maxSectionsDispatchedPerDrain
                 && !Thread.currentThread().isInterrupted()
                 && sessionEpoch.get() == epoch
                 && (queuedColumn = pollQueuedColumn()) != null) {

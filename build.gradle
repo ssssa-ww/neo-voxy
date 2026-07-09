@@ -184,6 +184,7 @@ java {
 }
 
 jar {
+    archiveClassifier = project.hasProperty("serverBuild") ? "server" : ""
     from("LICENSE") {
         rename { "${it}_${project.archives_base_name}"}
     }
@@ -375,8 +376,10 @@ dependencies {
     implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
 
     // LWJGL core - required by Voxy on server, not provided by Minecraft server
-    jarJar(implementation("org.lwjgl:lwjgl:$lwjglVersion")) {
-        version { strictly "[3.3.0,4.0.0)"; prefer "$lwjglVersion" }
+    if (project.hasProperty("serverBuild")) {
+        jarJar(implementation("org.lwjgl:lwjgl:$lwjglVersion")) {
+            version { strictly "[3.3.0,4.0.0)"; prefer "$lwjglVersion" }
+        }
     }
 
     // LWJGL-LMDB and LWJGL-ZSTD - Required by Voxy, NOT provided by Minecraft

@@ -13,6 +13,8 @@ public class VSSClientConfig extends JsonConfig {
     @Deprecated
     private Integer desiredBandwidthMiB;
     public boolean offThreadSectionProcessing = true;
+    public int lodPropagationSpeed = 2; // 1 = Slow, 2 = Standard, 3 = Fast, 4 = Extreme, 5 = Ludicrous, 6 = Uncapped
+    public boolean showPropagationProgress = true;
     public boolean debugLogging = false;
 
     @Override
@@ -23,6 +25,7 @@ public class VSSClientConfig extends JsonConfig {
     @Override
     protected void validate() {
         lodDistanceChunks = clamp(lodDistanceChunks, 0, MAX_LOD_DISTANCE_CHUNKS);
+        lodPropagationSpeed = clamp(lodPropagationSpeed, 1, 6);
         if (desiredBandwidthMiB != null) {
             if (desiredBandwidthMiB > 0) {
                 desiredBandwidthKbps = Math.multiplyExact(desiredBandwidthMiB, 1024 * 1024 * 8 / 1000);

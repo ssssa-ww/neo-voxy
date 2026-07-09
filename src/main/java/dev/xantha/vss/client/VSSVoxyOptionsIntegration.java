@@ -223,6 +223,30 @@ public final class VSSVoxyOptionsIntegration {
                             },
                             () -> VSSClientConfig.CONFIG.desiredBandwidthKbps,
                             VSSVoxyOptionsIntegration::formatKbpsAuto,
+                            VSSVoxyOptionsIntegration::saveClientConfig),
+                    sodium08IntOption(
+                            configBuilder,
+                            "lod_propagation_speed",
+                            "vss.voxy_options.lod_propagation_speed",
+                            "vss.voxy_options.lod_propagation_speed.tooltip",
+                            "LOW",
+                            2,
+                            1,
+                            6,
+                            1,
+                            value -> VSSClientConfig.CONFIG.lodPropagationSpeed = value,
+                            () -> VSSClientConfig.CONFIG.lodPropagationSpeed,
+                            VSSVoxyOptionsIntegration::formatPropagationSpeed,
+                            VSSVoxyOptionsIntegration::saveClientConfig),
+                    sodium08BooleanOption(
+                            configBuilder,
+                            "show_propagation_progress",
+                            "vss.voxy_options.show_propagation_progress",
+                            "vss.voxy_options.show_propagation_progress.tooltip",
+                            "LOW",
+                            true,
+                            value -> VSSClientConfig.CONFIG.showPropagationProgress = value,
+                            () -> VSSClientConfig.CONFIG.showPropagationProgress,
                             VSSVoxyOptionsIntegration::saveClientConfig)));
 
             invokeByName(page, "addOptionGroup", sodium08Group(
@@ -634,7 +658,25 @@ public final class VSSVoxyOptionsIntegration {
                                 config.desiredBandwidthKbps = value;
                                 Minecraft.getInstance().execute(VSSClientNetworking::sendBandwidthPreference);
                             },
-                            config -> config.desiredBandwidthKbps)));
+                            config -> config.desiredBandwidthKbps),
+                    oldIntOption(
+                            clientStorage,
+                            "vss.voxy_options.lod_propagation_speed",
+                            "vss.voxy_options.lod_propagation_speed.tooltip",
+                            "LOW",
+                            1,
+                            6,
+                            1,
+                            VSSVoxyOptionsIntegration::formatPropagationSpeed,
+                            (VSSClientConfig config, Integer value) -> config.lodPropagationSpeed = value,
+                            config -> config.lodPropagationSpeed),
+                    oldBooleanOption(
+                            clientStorage,
+                            "vss.voxy_options.show_propagation_progress",
+                            "vss.voxy_options.show_propagation_progress.tooltip",
+                            "LOW",
+                            (VSSClientConfig config, Boolean value) -> config.showPropagationProgress = value,
+                            config -> config.showPropagationProgress)));
 
                 groups.add(oldGroup(
                     oldBooleanOption(
@@ -1143,6 +1185,18 @@ public final class VSSVoxyOptionsIntegration {
         return value == 0
                 ? Component.translatable("vss.voxy_options.auto")
                 : Component.translatable("vss.voxy_options.chunks", value);
+    }
+
+    private static Component formatPropagationSpeed(int value) {
+        return switch (value) {
+            case 1 -> Component.translatable("vss.voxy_options.lod_propagation_speed.slow");
+            case 2 -> Component.translatable("vss.voxy_options.lod_propagation_speed.standard");
+            case 3 -> Component.translatable("vss.voxy_options.lod_propagation_speed.fast");
+            case 4 -> Component.translatable("vss.voxy_options.lod_propagation_speed.extreme");
+            case 5 -> Component.translatable("vss.voxy_options.lod_propagation_speed.ludicrous");
+            case 6 -> Component.translatable("vss.voxy_options.lod_propagation_speed.uncapped");
+            default -> Component.literal(String.valueOf(value));
+        };
     }
 
     private static Component formatChunks(int value) {

@@ -97,6 +97,7 @@ public final class VSSClientNetworking {
         serverEnabled = payload.enabled();
         serverLodDistance = payload.lodDistanceChunks();
         if (payload.enabled()) {
+            verifyAndInvalidateCache(payload.worldUUID());
             LodRequestManager manager = requestManager;
             boolean newSession = manager == null || !wasEnabled;
             if (newSession) {
@@ -405,5 +406,180 @@ public final class VSSClientNetworking {
                 + ", queued=" + COLUMN_PROCESSOR.getQueuedCount()
                 + ", last=" + payload.chunkX() + "," + payload.chunkZ()
                 + ", sectionsBytes=" + payload.decompressedSections().length);
+    }
+
+    private static void verifyAndInvalidateCache(java.util.UUID serverWorldUUID) {
+        if (serverWorldUUID == null || serverWorldUUID.equals(new java.util.UUID(0L, 0L))) {
+            return;
+        }
+        if (me.cortex.voxy.commonImpl.VoxyCommon.getInstance() instanceof me.cortex.voxy.client.VoxyClientInstance clientInstance) {
+            java.nio.file.Path basePath = clientInstance.getStorageBasePath();
+            if (basePath == null) {
+                return;
+            }
+            java.nio.file.Path uuidFile = basePath.resolve("vss_world_uuid.txt");
+            boolean mismatch = false;
+            try {
+                if (java.nio.file.Files.exists(uuidFile)) {
+                    String cachedUuidStr = java.nio.file.Files.readString(uuidFile).trim();
+                    java.util.UUID cachedUuid = java.util.UUID.fromString(cachedUuidStr);
+                    if (!serverWorldUUID.equals(cachedUuid)) {
+                        mismatch = true;
+                        VSSLogger.info("VSS: Server world UUID mismatch! Client: " + cachedUuid + ", Server: " + serverWorldUUID);
+                    }
+                } else {
+                    mismatch = true;
+                    VSSLogger.info("VSS: No cached server world UUID found, initializing with: " + serverWorldUUID);
+                }
+            } catch (Exception e) {
+                mismatch = true;
+                VSSLogger.warn("VSS: Failed to read cached world UUID, invalidating: " + e.getMessage());
+            }
+
+            if (mismatch) {
+                VSSLogger.info("VSS: Invalidating client cache due to database/world mismatch...");
+                boolean voxyWasRunning = me.cortex.voxy.commonImpl.VoxyCommon.getInstance() != null;
+                if (voxyWasRunning) {
+                    me.cortex.voxy.commonImpl.VoxyCommon.shutdownInstance();
+                }
+                try {
+                    deleteDirectoryContents(basePath);
+                } catch (Exception e) {
+                    VSSLogger.error("VSS: Failed to clear local cache directory", e);
+                }
+                try {
+                    java.nio.file.Files.createDirectories(basePath);
+                    java.nio.file.Files.writeString(uuidFile, serverWorldUUID.toString());
+                } catch (Exception e) {
+                    VSSLogger.error("VSS: Failed to save server world UUID", e);
+                }
+                if (voxyWasRunning) {
+                    me.cortex.voxy.commonImpl.VoxyCommon.createInstance();
+                }
+            }
+        }
+    }
+
+    private static void deleteDirectoryContents(java.nio.file.Path path) throws java.io.IOException {
+        if (!java.nio.file.Files.exists(path)) {
+            return;
+        }
+        try (java.util.stream.Stream<java.nio.file.Path> stream = java.nio.file.Files.walk(path)) {
+            stream.sorted(java.util.Comparator.reverseOrder())
+                .forEach(p -> {
+                    if (!p.equals(path)) {
+                        try {
+                            java.nio.file.Files.delete(p);
+                        } catch (java.io.IOException e) {
+                            // ignore / log
+                        }
+                    }
+                });
+        }
+    }
+
+    public static int getInFlightCount() {
+        LodRequestManager manager = requestManager;
+        return manager != null ? manager.getInFlightCount() : 0;
+    }
+
+    public static int getClientPendingCount() {
+        int count = 0;
+        count += getInFlightCount();
+        count += COLUMN_PROCESSOR.getQueuedCount();
+        var wr = Minecraft.getInstance().levelRenderer;
+        if (wr instanceof me.cortex.voxy.client.core.IGetVoxyRenderSystem vrs) {
+            var renderSystem = vrs.getVoxyRenderSystem();
+            if (renderSystem != null) {
+                var receptionService = renderSystem.getLodReceptionService();
+                if (receptionService != null) {
+                    count += receptionService.getPendingSectionsCount();
+                }
+            }
+        }
+        return count;
+    }
+
+    private static int maxPending = 0;
+
+    @SubscribeEvent
+    public static void onRenderGui(net.neoforged.neoforge.client.event.RenderGuiEvent.Post event) {
+        if (!VSSClientConfig.CONFIG.showPropagationProgress) {
+            maxPending = 0;
+            return;
+        }
+
+        net.minecraft.client.gui.GuiGraphics graphics = event.getGuiGraphics();
+        int width = 182;
+        int height = 5;
+        int guiWidth = Minecraft.getInstance().getWindow().getGuiScaledWidth();
+        int x = (guiWidth - width) / 2;
+        int y = 12;
+        int spacing = 20;
+
+        // Render client propagation progress
+        if (isClientLodSessionActive()) {
+            int currentPending = getClientPendingCount();
+            if (currentPending > 0) {
+                maxPending = Math.max(maxPending, currentPending);
+                float pct = maxPending > 0 ? (float) (maxPending - currentPending) / maxPending : 1.0f;
+                pct = Math.max(0.0f, Math.min(1.0f, pct));
+
+                // Background
+                graphics.fill(x, y, x + width, y + height, 0x80222222);
+                // Fill (Voxy Cyan)
+                int fillWidth = (int) (width * pct);
+                graphics.fill(x, y, x + fillWidth, y + height, 0xFF00FFCC);
+                // Text
+                String text = net.minecraft.network.chat.Component.translatable("vss.hud.lod_propagation", (int) (pct * 100), currentPending).getString();
+                graphics.drawCenteredString(Minecraft.getInstance().font, text, guiWidth / 2, y - 10, 0xFFFFFFFF);
+
+                y += spacing;
+            } else {
+                maxPending = 0;
+            }
+        } else {
+            maxPending = 0;
+        }
+
+        // Render server auto-ingestor progress (singleplayer only)
+        if (Minecraft.getInstance().getSingleplayerServer() != null) {
+            var ingestors = me.cortex.voxy.server.VoxyServer.getAutoIngestors();
+            if (ingestors != null) {
+                for (var entry : ingestors.entrySet()) {
+                    var level = entry.getKey();
+                    var ingestor = entry.getValue();
+                    if (ingestor != null && ingestor.isRunning()) {
+                        int processed = ingestor.getProcessedRegions();
+                        int total = ingestor.getTotalRegions();
+                        int queueSize = ingestor.getQueueSize();
+                        if (total > 0) {
+                            float pct = (float) processed / total;
+                            pct = Math.max(0.0f, Math.min(1.0f, pct));
+
+                            // Background
+                            graphics.fill(x, y, x + width, y + height, 0x80222222);
+                            // Fill (Lime Green / Emerald color for Server auto-ingest!)
+                            int fillWidth = (int) (width * pct);
+                            graphics.fill(x, y, x + fillWidth, y + height, 0xFF55FF55);
+
+                            // Text
+                            String dimName = level.dimension().location().getPath();
+                            String text = net.minecraft.network.chat.Component.translatable(
+                                    "vss.hud.server_auto_ingest",
+                                    dimName,
+                                    (int) (pct * 100),
+                                    processed,
+                                    total,
+                                    queueSize
+                            ).getString();
+                            graphics.drawCenteredString(Minecraft.getInstance().font, text, guiWidth / 2, y - 10, 0xFFFFFFFF);
+
+                            y += spacing;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
