@@ -1,38 +1,47 @@
 # Neo-Voxy REFORGED
 
-this very experimental port of neovoxy is a side project.. this was a great starting point that helped some people https://modrinth.com/plugin/voxy-server-side port to a fabric version of LOD streaming.
+This very experimental port of Neo-Voxy is a community effort to bring LOD rendering and streaming natively to NeoForge. Special starting points are owed to [voxy-server-side](https://modrinth.com/plugin/voxy-server-side) which helped model the Fabric version of LOD streaming.
 
+Tons of thanks to **cortex** (original author of Voxy) and **xantha** for cleaning up and optimizing the core architecture.
 
-tons of thanks to mc/cortex i know im not loved by u but i love u
+---
 
-xantha for making something of my spaghetti code.
+> ⚠️ **EXPERIMENTAL PORT** - This is an experimental NeoForge port of the original Fabric Voxy mod. **Use at your own risk!**
 
+Neo-Voxy is a NeoForge port of the Voxy mod, a far-distance rendering mod utilizing LODs (Level of Detail) for massive render distances. This Reforged edition integrates VSS (Voxel Streaming Service) directly, adding native client-server synchronization, extensive memory optimizations, and localization.
 
-------------------------------
-> **Complete EXPERIMENTAL PORT** - This is an experimental NeoForge port of the original Fabric Voxy mod. **Use at your own risk!**
+## Core Features & What's New
 
-Neo-Voxy is a NeoForge port of the Voxy mod, a far-distance rendering mod utilizing LODs (Level of Detail) for massive render distances. This port is currently in very early alpha and should be considered unstable.
+1. **Voxel Streaming Service (VSS) Integration**
+   * Native server-to-client LOD synchronization.
+   * Automatic client cache invalidation: if a server world is reset, generated, or changed, the client automatically clears its local cache (`.voxy/saves/<server_ip_port>`) based on a persistent server world UUID (`vss_world_uuid.txt`) to prevent rendering glitches.
+
+2. **Severe Memory Leak & Performance Fixes**
+   * **Zero-Memory Chunky Generation**: Replaced heavy coordinate queues with an event-driven delta-scanner. No queue data is kept in RAM during Chunky runs. It triggers a background scan of modified region files on completion.
+   * **Region Index Flattening**: Refactored `RegionIndex` to use flat primitive arrays, eliminating up to **8.3 million long-lived heap objects** (`IndexSlot` instances).
+   * **GC Pressure Optimization**: Replaced composite map keys with packed primitive `long` keys using Fastutil.
+   * **Deflater & Inflater Pooling**: Reuses native zlib `Deflater` and `Inflater` streams via thread-locals to stop native buffer churn and fragmentation.
+
+3. **Advanced Client Controls**
+   * **LOD Propagation Speed Settings**: A slider in the Sodium settings screen (supporting **Slow**, **Standard**, **Fast**, **Extreme**, **Ludicrous**, and **Uncapped**) dynamically scales pending section checks (8 to 2048 checks/tick) and queue drains.
+   * **Client-Side Rejoin Cache Loading**: Pre-loads saved section positions on rejoin, enabling correct Bloom filter negotiation to avoid re-downloading already-saved LOD chunks.
+
+4. **Singleplayer & Integrated Server Enhancements**
+   * **Singleplayer Background Auto-Ingestor**: Enabled background MCA region scanning on the integrated server thread so Chunky pre-generated chunks are correctly processed in singleplayer.
+   * **Autosave Database Integration**: Auto-flushes and saves active LOD cache directories whenever Minecraft triggers a save/autosave or `/save-all`.
+
+5. **Multi-Language Localizations**
+   * Comprehensive translations for **English**, **French**, **German**, **Spanish**, **Russian**, **Japanese**, **Brazilian Portuguese**, **Simplified Chinese**, and **Traditional Chinese**.
 
 ## Current State
 
 | Feature | Status |
 |---------|--------|
-| LOD Streaming | ⚠️  Functional/Experimental |
+| LOD Streaming | ✅ Functional / Highly Optimized |
 | Server-to-Client Sync | ✅ Functional |
 | Shader Support (Iris) | ✅ Voxy Shaders Functional |
-| Testing | ❌Not Done Rigorously|
-
-### What Works
-- Basic LOD streaming from server to client is functional
-- Section serialization and network transfer works
-- Block ID remapping between server and client
-- Core rendering pipeline with Sodium integration
-- Iris shader support expected to function (mixins are present)
-
-### What's Broken/Incomplete
-- **LOD streaming** is only partially working - some edge cases may fail
-- No support for Flashback, Nvidium
-- General instability and lack of comprehensive testing
+| Singleplayer Chunky Ingest | ✅ Functional |
+| Auto Cache Invalidation | ✅ Functional |
 
 ## Requirements
 
@@ -52,7 +61,7 @@ Neo-Voxy is a NeoForge port of the Voxy mod, a far-distance rendering mod utiliz
 
 ## Removed Mixins
 
-The following mixins from the original Fabric Voxy have been **removed** in this NeoForge port and may be added in the future:
+The following mixins from the original Fabric Voxy are currently **removed** in this NeoForge port:
 
 ### Flashback Integration (Removed)
 | Mixin | Purpose |
@@ -65,55 +74,40 @@ The following mixins from the original Fabric Voxy have been **removed** in this
 |-------|---------|
 | `nvidium.MixinRenderPipeline` | Nvidium render pipeline compatibility |
 
-
 ### Other Removed Mixins
 | Mixin | Purpose |
 |-------|---------|
-| `iris.MixinStandardMacros` | Iris shader macro definitions |
-| `minecraft.MixinBlockableEventLoop` | Client thread event loop hooks |
 | `minecraft.MixinGlDebug` | OpenGL debugging utilities |
-
-> **Note**: These mixins were removed due to incompatibility with NeoForge, missing dependencies, or not being ported yet. Future versions may restore some of this functionality.
 
 ## Current Mixin Configuration
 
 ### Client Mixins (`voxy.mixins.json`)
 
-**Minecraft Core (13 mixins)**
-- `MixinWorld`, `MixinClientChunkCache`, `MixinClientCommonPacketListenerImpl`
-- `MixinClientLevel`, `MixinClientPacketListener`, `MixinFogRenderer`
-- `MixinLevelRenderer`, `MixinMinecraft`, `MixinRenderSystem`
-- `MixinWindow`, `MixinLayerLightSectionStorage`
-
-**Sodium Integration (7 mixins)**
-- `AccessorChunkTracker`, `AccessorSodiumWorldRenderer`
-- `MixinChunkJobQueue`, `MixinDefaultChunkRenderer`
-- `MixinRenderSectionManager`, `MixinSodiumOptionsGUI`, `MixinSodiumWorldRenderer`
-
-**Iris Integration (10 mixins)**
-- `CustomUniformsAccessor`, `IrisRenderingPipelineAccessor`
-- `MixinIris`, `MixinIrisRenderingPipeline`, `MixinIrisSamplers`
-- `MixinLevelRenderer`, `MixinMatrixUniforms`
-- `MixinPackRenderTargetDirectives`, `MixinProgramSet`, `MixinShaderPackSourceNames`
+* **Minecraft Core**: `MixinWorld`, `MixinClientChunkCache`, `MixinClientCommonPacketListenerImpl`, `MixinClientLevel`, `MixinClientPacketListener`, `MixinFogRenderer`, `MixinLevelRenderer`, `MixinMinecraft`, `MixinRenderSystem`, `MixinWindow`, `MixinLayerLightSectionStorage`
+* **Sodium Integration**: `AccessorChunkTracker`, `AccessorSodiumWorldRenderer`, `MixinChunkJobQueue`, `MixinDefaultChunkRenderer`, `MixinRenderSectionManager`, `MixinSodiumOptionsGUI`, `MixinSodiumWorldRenderer`
+* **Iris Integration**: `CustomUniformsAccessor`, `IrisRenderingPipelineAccessor`, `MixinIris`, `MixinIrisRenderingPipeline`, `MixinIrisSamplers`, `MixinLevelRenderer`, `MixinMatrixUniforms`, `MixinPackRenderTargetDirectives`, `MixinProgramSet`, `MixinShaderPackSourceNames`, `MixinStandardMacros`
 
 ### Common Mixins (`voxy-common.mixins.json`)
-- `MixinLevelCommon` - Server/common level hooks
+* `MixinLevelCommon` - Server/common level hooks
+
+### VSS Compatibility Mixins (`vss.compat.mixins.json`)
+* Covers entity tracking accessors, teleport commands, level chunk bindable tickers, and depth mask rendering integration.
 
 ## Known Issues
-> ⚠️ **INCOMPATABILITIES**: BetterFpsDist.
-
+* ⚠️ **INCOMPATABILITIES**: BetterFpsDist.
 
 ## Contributing
 
 This is an unofficial port. If you encounter issues:
 1. First check if the issue exists in the original Fabric version
 2. If it's port-specific, document the issue with steps to reproduce
-3. PRs are welcome for fixing NeoForge compatibility issues
+3. Pull Requests are welcome for fixing NeoForge compatibility issues
 
 ## Credits
 
 - **Original Voxy Mod**: [cortex](https://github.com/cortex/voxy)
-- **NeoForge Port**: Community effort
+- **LOD Streaming Protocol (VSS)**: [xantha](https://github.com/xantha/voxy-server-side)
+- **NeoForge Reforged Port**: Community effort
 
 ## License
 
@@ -129,8 +123,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-> ⚠️ **IMPORTANT**: This is a source-code-only fork. **Do not distribute compiled builds.** You must build from source yourself
-
+> ⚠️ **IMPORTANT**: This is a source-code-only fork. **Do not distribute compiled builds.** You must build from source yourself.
 
 ---
 
