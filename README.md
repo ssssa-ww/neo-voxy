@@ -106,7 +106,7 @@ This is an unofficial port. If you encounter issues:
 ## Credits
 
 - **Original Voxy Mod**: [cortex](https://github.com/cortex/voxy)
-- **LOD Streaming Protocol (VSS)**: [xantha](https://github.com/xantha/voxy-server-side)
+- **LOD Streaming Protocol (VSS)**: [xantha](https://github.com/xantha/voxy-server-side) with my deprecated source
 - **NeoForge Reforged Port**: Community effort
 
 ## License
