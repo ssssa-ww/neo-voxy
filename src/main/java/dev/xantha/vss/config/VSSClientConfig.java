@@ -14,7 +14,6 @@ public class VSSClientConfig extends JsonConfig {
     private Integer desiredBandwidthMiB;
     public boolean offThreadSectionProcessing = true;
     public int lodPropagationSpeed = 2; // 1 = Slow, 2 = Standard, 3 = Fast, 4 = Extreme, 5 = Ludicrous, 6 = Uncapped
-    public boolean showPropagationProgress = true;
     public boolean debugLogging = false;
 
     @Override

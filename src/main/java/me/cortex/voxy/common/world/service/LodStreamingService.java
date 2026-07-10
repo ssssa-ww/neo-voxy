@@ -202,7 +202,8 @@ public class LodStreamingService implements AutoCloseable {
      * data.
      */
     private void startStreaming(PlayerStreamingState state) {
-        if (!isActive.get() || !state.player.isAlive()) {
+        if (!isActive.get() || !state.player.isAlive() || !state.player.serverLevel().players().contains(state.player)) {
+            onPlayerDisconnect(state.player.getUUID());
             return;
         }
 
@@ -235,10 +236,20 @@ public class LodStreamingService implements AutoCloseable {
 
                 // Stream all Y levels and LOD levels
                 for (int lvl = WorldEngine.MAX_LOD_LAYER; lvl >= 0; lvl--) {
+                    int lvlX = sectionX >> lvl;
+                    int lvlZ = sectionZ >> lvl;
                     for (int y = -4; y < 20; y++) { // Reasonable Y range
-                        long key = WorldEngine.getWorldSectionId(lvl, sectionX, y, sectionZ);
+                        int lvlY = y >> lvl;
+                        long key = WorldEngine.getWorldSectionId(lvl, lvlX, lvlY, lvlZ);
 
-                        // Check if section exists on server (regardless of bloom filter)
+                        // Skip if already sent or in bloom filter
+                        if (state.sentSections.contains(key) ||
+                                (state.clientCacheFilter != null && state.clientCacheFilter.mightContain(key))) {
+                            sectionsFound++;
+                            continue;
+                        }
+
+                        // Check if section exists on server
                         WorldSection section = worldEngine.acquireIfExists(key);
                         if (section != null) {
                             try {
@@ -257,12 +268,6 @@ public class LodStreamingService implements AutoCloseable {
 
                                 if (hasContent) {
                                     sectionsFound++; // Server has this section
-
-                                    // Skip if already sent or in bloom filter
-                                    if (state.sentSections.contains(key) ||
-                                            state.clientCacheFilter.mightContain(key)) {
-                                        continue;
-                                    }
 
                                     // Send this section
                                     byte[] data = SectionSerializer.serialize(section);
@@ -318,17 +323,20 @@ public class LodStreamingService implements AutoCloseable {
      * Maintenance mode - periodically rescans from player position for new LODs.
      */
     private void scheduleMaintenanceScan(PlayerStreamingState state) {
-        if (!isActive.get() || !state.player.isAlive()) {
+        if (!isActive.get() || !state.player.isAlive() || !state.player.serverLevel().players().contains(state.player)) {
+            onPlayerDisconnect(state.player.getUUID());
             return;
         }
 
         // Schedule a rescan starting from ring 0 after 30 seconds
         scheduler.schedule(() -> {
-            if (isActive.get() && state.player.isAlive()) {
+            if (isActive.get() && state.player.isAlive() && state.player.serverLevel().players().contains(state.player)) {
                 state.currentRing = 0;
                 state.consecutiveEmptyRings = 0;
                 Logger.info("Starting maintenance scan for " + state.player.getName().getString());
                 startStreaming(state);
+            } else {
+                onPlayerDisconnect(state.player.getUUID());
             }
         }, 30, TimeUnit.SECONDS);
     }

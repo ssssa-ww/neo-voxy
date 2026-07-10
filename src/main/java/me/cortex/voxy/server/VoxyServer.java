@@ -45,10 +45,6 @@ public class VoxyServer {
     // Per-dimension background auto-ingestors
     private static final ConcurrentHashMap<ServerLevel, BackgroundAutoIngestor> autoIngestors = new ConcurrentHashMap<>();
 
-    public static java.util.Map<ServerLevel, BackgroundAutoIngestor> getAutoIngestors() {
-        return autoIngestors;
-    }
-
     // Current server reference
     private static MinecraftServer currentServer;
 
@@ -411,14 +407,27 @@ public class VoxyServer {
     @SubscribeEvent
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            var level = player.serverLevel();
-            var service = streamingServices.get(level);
-            if (service != null) {
-                service.onPlayerDisconnect(player.getUUID());
+            java.util.UUID playerId = player.getUUID();
+            for (var service : streamingServices.values()) {
+                service.onPlayerDisconnect(playerId);
             }
-            VoxyNetworkHandler.removePlayer(player.getUUID());
+            VoxyNetworkHandler.removePlayer(playerId);
         }
     }
+
+    /**
+     * Handle player changed dimension to clean up streaming state in the old dimension.
+     */
+    @SubscribeEvent
+    public static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player) {
+            java.util.UUID playerId = player.getUUID();
+            for (var service : streamingServices.values()) {
+                service.onPlayerDisconnect(playerId);
+            }
+        }
+    }
+
 
     /**
      * Handle server tick for command processing.

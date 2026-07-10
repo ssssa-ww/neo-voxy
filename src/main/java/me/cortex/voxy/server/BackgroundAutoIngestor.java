@@ -556,22 +556,6 @@ public class BackgroundAutoIngestor {
         }
     }
 
-    public boolean isRunning() {
-        return isRunning.get();
-    }
-
-    public int getProcessedRegions() {
-        return processedRegions.get();
-    }
-
-    public int getTotalRegions() {
-        return totalRegions.get();
-    }
-
-    public int getQueueSize() {
-        return readyQueue.size();
-    }
-
     /**
      * Shutdown the ingestor.
      */

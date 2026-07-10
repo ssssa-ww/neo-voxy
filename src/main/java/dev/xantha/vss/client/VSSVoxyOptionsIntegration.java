@@ -237,16 +237,6 @@ public final class VSSVoxyOptionsIntegration {
                             value -> VSSClientConfig.CONFIG.lodPropagationSpeed = value,
                             () -> VSSClientConfig.CONFIG.lodPropagationSpeed,
                             VSSVoxyOptionsIntegration::formatPropagationSpeed,
-                            VSSVoxyOptionsIntegration::saveClientConfig),
-                    sodium08BooleanOption(
-                            configBuilder,
-                            "show_propagation_progress",
-                            "vss.voxy_options.show_propagation_progress",
-                            "vss.voxy_options.show_propagation_progress.tooltip",
-                            "LOW",
-                            true,
-                            value -> VSSClientConfig.CONFIG.showPropagationProgress = value,
-                            () -> VSSClientConfig.CONFIG.showPropagationProgress,
                             VSSVoxyOptionsIntegration::saveClientConfig)));
 
             invokeByName(page, "addOptionGroup", sodium08Group(
@@ -669,14 +659,7 @@ public final class VSSVoxyOptionsIntegration {
                             1,
                             VSSVoxyOptionsIntegration::formatPropagationSpeed,
                             (VSSClientConfig config, Integer value) -> config.lodPropagationSpeed = value,
-                            config -> config.lodPropagationSpeed),
-                    oldBooleanOption(
-                            clientStorage,
-                            "vss.voxy_options.show_propagation_progress",
-                            "vss.voxy_options.show_propagation_progress.tooltip",
-                            "LOW",
-                            (VSSClientConfig config, Boolean value) -> config.showPropagationProgress = value,
-                            config -> config.showPropagationProgress)));
+                            config -> config.lodPropagationSpeed)));
 
                 groups.add(oldGroup(
                     oldBooleanOption(

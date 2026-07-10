@@ -527,11 +527,15 @@ public class Mapper {
                 if (state.isError()) {
                     Logger.info(
                             "Could not decode blockstate, attempting fixes, error: " + state.error().get().message());
-                    bsc = (CompoundTag) DataFixers.getDataFixer()
-                            .update(References.BLOCK_STATE, new Dynamic<>(NbtOps.INSTANCE, bsc), 0,
-                                    SharedConstants.getCurrentVersion().getDataVersion().getVersion())
-                            .getValue();
-                    state = BlockState.CODEC.parse(NbtOps.INSTANCE, bsc);
+                    try {
+                        bsc = (CompoundTag) DataFixers.getDataFixer()
+                                .update(References.BLOCK_STATE, new Dynamic<>(NbtOps.INSTANCE, bsc), 0,
+                                        SharedConstants.getCurrentVersion().getDataVersion().getVersion())
+                                .getValue();
+                        state = BlockState.CODEC.parse(NbtOps.INSTANCE, bsc);
+                    } catch (Exception e) {
+                        Logger.warn("Failed to datafix blockstate: " + e.getMessage());
+                    }
                     if (state.isError()) {
                         Logger.error("Could not decode blockstate setting to air. id:" + id + " error: "
                                 + state.error().get().message());
