@@ -161,6 +161,7 @@ public class VoxyRenderSystem {
 
             // Initialize LOD reception service for network streaming
             this.lodReceptionService = new LodReceptionService(world, world.getMapper(), this.modelService);
+            net.neoforged.neoforge.common.NeoForge.EVENT_BUS.register(this.lodReceptionService);
         } catch (RuntimeException e) {
             world.releaseRef();// If something goes wrong, we must release the world first
             throw e;
@@ -483,6 +484,7 @@ public class VoxyRenderSystem {
 
             // Shutdown LOD streaming reception
             if (this.lodReceptionService != null) {
+                net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(this.lodReceptionService);
                 this.lodReceptionService.close();
                 this.lodReceptionService = null;
             }

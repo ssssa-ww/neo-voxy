@@ -25,5 +25,20 @@
   "voxy.config.threads.saving": "Saving",
   "voxy.config.threads.saving.tooltip": "How many threads voxy will use for saving sections to the storage backend",
   "voxy.config.threads.render": "Render",
-  "voxy.config.threads.render.tooltip": "How many threads voxy will use for generating render data"
+  "voxy.config.threads.render.tooltip": "How many threads voxy will use for generating render data",
+
+  "voxy.config.general.serviceThreads": "Service Threads",
+  "voxy.config.general.serviceThreads.tooltip": "Number of threads Voxy uses for background service tasks.",
+  "voxy.config.general.useSodiumBuilder": "Use Sodium Builder Threads",
+  "voxy.config.general.useSodiumBuilder.tooltip": "Shares Sodium's builder threads for Voxy chunk building.",
+  "voxy.config.general.rendering": "Enable LOD Rendering",
+  "voxy.config.general.rendering.tooltip": "Toggle rendering of distant level-of-detail sections.",
+  "voxy.config.general.subDivisionSize": "Subdivision size",
+  "voxy.config.general.subDivisionSize.tooltip": "Controls LOD subdivisions (mesh resolution).",
+  "voxy.config.general.vanilla_fog": "Render Vanilla Fog",
+  "voxy.config.general.vanilla_fog.tooltip": "Applies vanilla fog shading onto distant LODs.",
+  "voxy.config.general.render_statistics": "Render Debug Statistics",
+  "voxy.config.general.render_statistics.tooltip": "Displays advanced LOD meshes and traversal stats in F3.",
+  "voxy.config.general.show_sync_progress_bar": "Show Sync Progress Bar",
+  "voxy.config.general.show_sync_progress_bar.tooltip": "Displays an in-game HUD progress bar displaying how far your local LOD database matches the server during streaming/sync."
 }

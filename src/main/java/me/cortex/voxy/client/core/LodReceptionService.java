@@ -10,13 +10,16 @@ import me.cortex.voxy.common.world.SectionSerializer;
 import me.cortex.voxy.common.world.WorldEngine;
 import me.cortex.voxy.common.world.WorldSection;
 import me.cortex.voxy.common.world.other.Mapper;
-
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.neoforge.client.event.RenderGuiEvent;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.Minecraft;
 
 /**
  * Client-side service for receiving and processing streamed LOD data.
@@ -66,6 +69,14 @@ public class LodReceptionService implements AutoCloseable {
     /** Whether we've already requested sync */
     private volatile boolean syncRequested = false;
 
+    // Progress bar tracking
+    private volatile int totalSections = 0;
+    private volatile int matchedSections = 0;
+    private volatile int serverSentSections = 0;
+    private volatile boolean syncInProgress = false;
+    private int completeAnimationTicks = 0;
+    private boolean hasShownSyncProgress = false;
+
     public LodReceptionService(WorldEngine worldEngine, Mapper clientMapper,
             me.cortex.voxy.client.core.model.ModelBakerySubsystem modelBakery) {
         this.worldEngine = worldEngine;
@@ -104,6 +115,10 @@ public class LodReceptionService implements AutoCloseable {
             return;
         }
 
+        if (completeAnimationTicks > 0) {
+            completeAnimationTicks--;
+        }
+
         if (!VoxyNetworkHandler.shouldEnableStreaming()) {
             return;
         }
@@ -111,6 +126,8 @@ public class LodReceptionService implements AutoCloseable {
         // Request sync from server if not done yet (to get mapper)
         if (!syncRequested) {
             syncRequested = true;
+            syncInProgress = true;
+            hasShownSyncProgress = false;
             Logger.info("Requesting LOD sync for server-driven streaming");
             VoxyNetworkHandler.sendToServer(VoxyPacketPayload.syncRequest());
         }
@@ -131,6 +148,7 @@ public class LodReceptionService implements AutoCloseable {
             case VoxyPacketPayload.MSG_LOD_CHUNK -> handleChunk(payload);
             case VoxyPacketPayload.MSG_SYNC_COMPLETE -> handleSyncComplete(payload);
             case VoxyPacketPayload.MSG_CACHE_QUERY -> handleCacheQuery(payload);
+            case VoxyPacketPayload.MSG_SYNC_PROGRESS -> handleSyncProgress(payload);
         }
 
         // Update congestion control
@@ -191,12 +209,22 @@ public class LodReceptionService implements AutoCloseable {
         }
     }
 
-    /**
-     * Handle sync complete signal.
-     */
     private void handleSyncComplete(VoxyPacketPayload payload) {
         Logger.info("LOD sync complete! Received: " + sectionsReceived.get() +
                 ", Applied: " + sectionsApplied.get());
+        syncInProgress = false;
+        completeAnimationTicks = 60; // Show "Sync Complete" status for 3 seconds (60 ticks)
+    }
+
+    /**
+     * Handle sync progress update from server.
+     */
+    private void handleSyncProgress(VoxyPacketPayload payload) {
+        int[] stats = payload.parseSyncProgress();
+        this.totalSections = stats[0];
+        this.matchedSections = stats[1];
+        this.serverSentSections = stats[2];
+        this.syncInProgress = true;
     }
 
     /**
@@ -319,17 +347,17 @@ public class LodReceptionService implements AutoCloseable {
         int maxChecksPerTick;
         int speed = dev.xantha.vss.config.VSSClientConfig.CONFIG.lodPropagationSpeed;
         if (speed == 1) {
-            maxChecksPerTick = 8;
+            maxChecksPerTick = 12;
         } else if (speed == 2) {
-            maxChecksPerTick = 32;
+            maxChecksPerTick = 48;
         } else if (speed == 3) {
-            maxChecksPerTick = 96;
+            maxChecksPerTick = 144;
         } else if (speed == 4) {
-            maxChecksPerTick = 256;
+            maxChecksPerTick = 384;
         } else if (speed == 5) {
-            maxChecksPerTick = 512;
+            maxChecksPerTick = 768;
         } else {
-            maxChecksPerTick = 2048;
+            maxChecksPerTick = 3072;
         }
         for (var entry : pendingSections.entrySet()) {
             if (checked >= maxChecksPerTick) {
@@ -437,6 +465,94 @@ public class LodReceptionService implements AutoCloseable {
                 System.arraycopy(entry.getValue(), 0, result, entry.getKey(), entry.getValue().length);
             }
             return result;
+        }
+    }
+
+    /**
+     * Render the LOD sync progress bar HUD overlay.
+     */
+    @SubscribeEvent
+    public void onRenderGui(RenderGuiEvent.Post event) {
+        if (!me.cortex.voxy.client.config.VoxyConfig.CONFIG.showSyncProgressBar) {
+            return;
+        }
+
+        if (!syncInProgress && completeAnimationTicks <= 0) {
+            return;
+        }
+
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.options.hideGui || mc.level == null) {
+            return; // Respect F1 mode and only render in game
+        }
+
+        int screenWidth = mc.getWindow().getGuiScaledWidth();
+
+        // Calculate progress percentage
+        int total = this.totalSections;
+        int current = this.matchedSections + this.sectionsReceived.get();
+
+        if (total <= 0) {
+            total = 1;
+        }
+        if (current > total) {
+            current = total;
+        }
+
+        float progress = (float) current / total;
+        if (progress > 1.0f) {
+            progress = 1.0f;
+        }
+
+        // If progress is 100%, trigger completion animation immediately instead of showing it forever
+        if (progress >= 0.999f && syncInProgress) {
+            if (completeAnimationTicks == 0) {
+                // If we've actually shown some progress (we had missing sections), show sync complete for 3s (60 ticks)
+                // Otherwise, it was already 100% matched, so show "LOD Cache Matched!" for 1.5s (30 ticks)
+                completeAnimationTicks = hasShownSyncProgress ? 60 : 30;
+                syncInProgress = false;
+            }
+        } else if (progress < 0.999f && syncInProgress) {
+            hasShownSyncProgress = true;
+        }
+
+        // Draw a beautiful progress bar overlay at the top of the screen
+        int barWidth = 180;
+        int barHeight = 4;
+        int bgHeight = 20;
+
+        int x = (screenWidth - barWidth) / 2;
+        int y = 12; // Top margin
+
+        GuiGraphics graphics = event.getGuiGraphics();
+
+        // 1. Draw sleek glassmorphism background panel (dark with slight alpha, bordered)
+        graphics.fill(x - 10, y - 4, x + barWidth + 10, y + bgHeight, 0x99101014); // Dark panel background
+        graphics.fill(x - 10, y - 4, x + barWidth + 10, y - 3, 0xAA00D2FF); // Top cyan highlight border
+
+        // 2. Draw Text (LOD Sync: 87.5% or LOD Sync Complete!)
+        String title;
+        int titleColor;
+        if (syncInProgress) {
+            title = String.format("LOD Sync: %.1f%% (%s / %s)", progress * 100.0f, 
+                    String.format("%,d", current), String.format("%,d", total));
+            titleColor = 0xFFFFFFFF;
+        } else {
+            title = hasShownSyncProgress ? "LOD Sync Complete!" : "LOD Cache Matched!";
+            titleColor = 0xFF00FF88; // Sleek green
+            progress = 1.0f;
+        }
+
+        graphics.drawCenteredString(mc.font, title, screenWidth / 2, y, titleColor);
+
+        // 3. Draw Progress Bar track
+        int barY = y + 10;
+        graphics.fill(x, barY, x + barWidth, barY + barHeight, 0xFF202028); // Empty track
+
+        // 4. Draw Progress Bar fill (cyan glow)
+        int fillWidth = Math.round(progress * barWidth);
+        if (fillWidth > 0) {
+            graphics.fill(x, barY, x + fillWidth, barY + barHeight, 0xFF00D2FF); // Cyan filled bar
         }
     }
 }

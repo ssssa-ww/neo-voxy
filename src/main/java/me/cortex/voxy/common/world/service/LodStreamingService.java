@@ -246,6 +246,8 @@ public class LodStreamingService implements AutoCloseable {
                         if (state.sentSections.contains(key) ||
                                 (state.clientCacheFilter != null && state.clientCacheFilter.mightContain(key))) {
                             sectionsFound++;
+                            state.totalSectionsScanned++;
+                            state.matchedSectionsScanned++;
                             continue;
                         }
 
@@ -268,6 +270,7 @@ public class LodStreamingService implements AutoCloseable {
 
                                 if (hasContent) {
                                     sectionsFound++; // Server has this section
+                                    state.totalSectionsScanned++;
 
                                     // Send this section
                                     byte[] data = SectionSerializer.serialize(section);
@@ -300,6 +303,14 @@ public class LodStreamingService implements AutoCloseable {
 
         state.currentRing++;
 
+        // Send progress updates periodically (at most once every 200ms) or at the end of the scan
+        long now = System.currentTimeMillis();
+        if (now - state.lastProgressSentTime > 200L || state.consecutiveEmptyRings >= 5) {
+            state.lastProgressSentTime = now;
+            VoxyNetworkHandler.sendToPlayer(state.player,
+                    VoxyPacketPayload.syncProgress(state.totalSectionsScanned, state.matchedSectionsScanned, state.sentSections.size()));
+        }
+
         // Calculate delay based on distance (further rings = slower)
         // Base: 100ms, increases with distance up to max 2000ms
         long delayMs = Math.min(100 + (currentRing * 20L), 2000);
@@ -310,6 +321,10 @@ public class LodStreamingService implements AutoCloseable {
             savePlayerCache(state.player.getUUID(), state.clientCacheFilter);
             Logger.info("Entering maintenance mode for " + state.player.getName().getString() +
                     " (reached edge of LOD data at ring " + currentRing + ")");
+
+            // Send MSG_SYNC_COMPLETE to signal sync is complete
+            VoxyNetworkHandler.sendToPlayer(state.player,
+                    new VoxyPacketPayload(VoxyPacketPayload.MSG_SYNC_COMPLETE, new byte[0]));
 
             // Schedule periodic rescan (every 30 seconds) to pick up new LODs
             scheduleMaintenanceScan(state);
@@ -349,21 +364,17 @@ public class LodStreamingService implements AutoCloseable {
         PlayerStreamingState state = playerStates.get(player.getUUID());
 
         if (state != null) {
-            // Ensure we have a properly-sized filter
-            if (state.clientCacheFilter == null) {
+            if (clientCache != null && clientCache.getSerializedSize() > 100) {
+                state.clientCacheFilter = clientCache;
+                // Re-add sections sent in this session before the response arrived
+                for (Long key : state.sentSections) {
+                    state.clientCacheFilter.add(key);
+                }
+                Logger.info("Received client bloom filter for " + player.getName().getString() +
+                        " (size: " + clientCache.getSerializedSize() + " bytes)");
+            } else if (state.clientCacheFilter == null) {
                 state.clientCacheFilter = BloomFilter.forExpectedElements(10000);
             }
-
-            // Merge client's filter into our properly-sized one
-            // This picks up any sections the client already has (if they report them)
-            if (clientCache != null && clientCache.getSerializedSize() > 100) {
-                state.clientCacheFilter.merge(clientCache);
-                Logger.info("Merged client bloom filter for " + player.getName().getString());
-            } else {
-                Logger.info("Client bloom filter too small, using server-side only for " +
-                        player.getName().getString());
-            }
-            // Don't save immediately - wait until actual sections are sent
         }
     }
 
@@ -427,6 +438,11 @@ public class LodStreamingService implements AutoCloseable {
         int consecutiveEmptyRings = 0;
         int clientDesiredRate = SharedBandwidthLimit.DEFAULT_PLAYER_LIMIT_KBPS;
         BloomFilter clientCacheFilter = null;
+
+        // Progress tracking
+        int totalSectionsScanned = 0;
+        int matchedSectionsScanned = 0;
+        long lastProgressSentTime = 0;
 
         PlayerStreamingState(ServerPlayer player, SharedBandwidthLimit sharedLimit, int limitKBps) {
             this.player = player;

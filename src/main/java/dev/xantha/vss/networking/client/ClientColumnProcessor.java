@@ -28,26 +28,26 @@ final class ClientColumnProcessor {
     private static int getMaxColumnsPerDrain() {
         int speed = VSSClientConfig.CONFIG.lodPropagationSpeed;
         return switch (speed) {
-            case 1 -> 16;
-            case 2 -> 64;
-            case 3 -> 128;
-            case 4 -> 256;
-            case 5 -> 512;
-            case 6 -> 1024;
-            default -> 64;
+            case 1 -> 24;
+            case 2 -> 96;
+            case 3 -> 192;
+            case 4 -> 384;
+            case 5 -> 768;
+            case 6 -> 1536;
+            default -> 96;
         };
     }
 
     private static int getMaxSectionsDispatchedPerDrain() {
         int speed = VSSClientConfig.CONFIG.lodPropagationSpeed;
         return switch (speed) {
-            case 1 -> 192;
-            case 2 -> 768;
-            case 3 -> 1536;
-            case 4 -> 3072;
-            case 5 -> 6144;
-            case 6 -> 12288;
-            default -> 768;
+            case 1 -> 288;
+            case 2 -> 1152;
+            case 3 -> 2304;
+            case 4 -> 4608;
+            case 5 -> 9216;
+            case 6 -> 18432;
+            default -> 1152;
         };
     }
 

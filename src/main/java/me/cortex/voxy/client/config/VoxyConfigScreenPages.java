@@ -15,6 +15,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import java.util.ArrayList;
 import java.util.List;
+import dev.xantha.vss.config.VSSClientConfig;
 
 public abstract class VoxyConfigScreenPages {
     private VoxyConfigScreenPages() {
@@ -154,6 +155,52 @@ public abstract class VoxyConfigScreenPages {
                         .setFlags(OptionFlag.REQUIRES_RENDERER_RELOAD)
                         .build())
                 .build());
+
+        // VSS Options (LOD Streaming / Propagation Speed)
+        net.caffeinemc.mods.sodium.client.gui.options.storage.OptionStorage<VSSClientConfig> vssStorage = new net.caffeinemc.mods.sodium.client.gui.options.storage.OptionStorage<VSSClientConfig>() {
+            @Override
+            public VSSClientConfig getData() {
+                return VSSClientConfig.CONFIG;
+            }
+
+            @Override
+            public void save() {
+                VSSClientConfig.CONFIG.normalizeAndSave();
+            }
+        };
+
+        groups.add(OptionGroup.createBuilder()
+                .add(OptionImpl.createBuilder(boolean.class, vssStorage)
+                        .setName(Component.translatable("vss.voxy_options.receive_server_lods"))
+                        .setTooltip(Component.translatable("vss.voxy_options.receive_server_lods.tooltip"))
+                        .setControl(TickBoxControl::new)
+                        .setBinding((s, v) -> {
+                            s.receiveServerLods = v;
+                            s.normalizeAndSave();
+                        }, s -> s.receiveServerLods)
+                        .setImpact(OptionImpact.MEDIUM)
+                        .build())
+                .add(OptionImpl.createBuilder(int.class, vssStorage)
+                        .setName(Component.translatable("vss.voxy_options.lod_propagation_speed"))
+                        .setTooltip(Component.translatable("vss.voxy_options.lod_propagation_speed.tooltip"))
+                        .setControl(opt -> new SliderControl(opt, 1, 6, 1, VoxyConfigScreenPages::formatPropagationSpeed))
+                        .setBinding((s, v) -> {
+                            s.lodPropagationSpeed = v;
+                            s.normalizeAndSave();
+                        }, s -> s.lodPropagationSpeed)
+                        .setImpact(OptionImpact.LOW)
+                        .build())
+                .add(OptionImpl.createBuilder(boolean.class, storage)
+                        .setName(Component.translatable("voxy.config.general.show_sync_progress_bar"))
+                        .setTooltip(Component.translatable("voxy.config.general.show_sync_progress_bar.tooltip"))
+                        .setControl(TickBoxControl::new)
+                        .setBinding((s, v) -> {
+                            s.showSyncProgressBar = v;
+                            s.save();
+                        }, s -> s.showSyncProgressBar)
+                        .build())
+                .build());
+
         return new OptionPage(Component.translatable("voxy.config.title"), ImmutableList.copyOf(groups));
     }
 
@@ -172,6 +219,18 @@ public abstract class VoxyConfigScreenPages {
     // Out range is 0->200
     private static int subDiv2ln(float in) {
         return (int) (((Math.log(((double) in) / SUBDIV_MIN) / Math.log(2)) / SUBDIV_CONST) * SUBDIV_IN_MAX);
+    }
+
+    public static Component formatPropagationSpeed(int value) {
+        return switch (value) {
+            case 1 -> Component.translatable("vss.voxy_options.lod_propagation_speed.slow");
+            case 2 -> Component.translatable("vss.voxy_options.lod_propagation_speed.standard");
+            case 3 -> Component.translatable("vss.voxy_options.lod_propagation_speed.fast");
+            case 4 -> Component.translatable("vss.voxy_options.lod_propagation_speed.extreme");
+            case 5 -> Component.translatable("vss.voxy_options.lod_propagation_speed.ludicrous");
+            case 6 -> Component.translatable("vss.voxy_options.lod_propagation_speed.uncapped");
+            default -> Component.literal(String.valueOf(value));
+        };
     }
 
 }
