@@ -1,7 +1,6 @@
 # Neo-Voxy REFORGED
 https://discord.gg/YaEYZ4emn - Join our discord for help or to help and discuss neovoxy!
 
-huge stabilizing update today 7/10 :)))
 
 This very experimental port of Neo-Voxy is a community effort to bring LOD rendering and streaming natively to NeoForge. Special starting points are owed to [voxy-server-side](https://modrinth.com/plugin/voxy-server-side) which helped model the Fabric version of LOD streaming.
 
