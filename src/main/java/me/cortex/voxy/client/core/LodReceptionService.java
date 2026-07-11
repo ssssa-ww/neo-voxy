@@ -63,6 +63,23 @@ public class LodReceptionService implements AutoCloseable {
     /** Sections pending processing because models aren't ready yet */
     private final ConcurrentHashMap<Long, byte[]> pendingSections = new ConcurrentHashMap<>();
 
+    // Prepared section class for offloaded remapping and deserialization
+    private static class PreparedSection {
+        final long key;
+        final long[] remappedVoxelData;
+        final byte nonEmptyChildren;
+
+        PreparedSection(long key, long[] remappedVoxelData, byte nonEmptyChildren) {
+            this.key = key;
+            this.remappedVoxelData = remappedVoxelData;
+            this.nonEmptyChildren = nonEmptyChildren;
+        }
+    }
+
+    private final java.util.concurrent.ConcurrentLinkedQueue<PreparedSection> preparedSections = new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private final ExecutorService ingestionExecutor;
+    private final java.util.concurrent.atomic.AtomicBoolean ingestionScheduled = new java.util.concurrent.atomic.AtomicBoolean(false);
+
     /** Whether the mapper has been synced (required for processing) */
     private volatile boolean mapperReady = false;
 
@@ -84,8 +101,15 @@ public class LodReceptionService implements AutoCloseable {
         this.modelBakery = modelBakery;
         this.congestionControl = new ClientCongestionControl(this::onRateUpdate);
 
-        this.processingExecutor = Executors.newSingleThreadExecutor(r -> {
+        int coreCount = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
+        this.processingExecutor = Executors.newFixedThreadPool(coreCount, r -> {
             Thread t = new Thread(r, "VoxyLodReception");
+            t.setDaemon(true);
+            return t;
+        });
+
+        this.ingestionExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "VoxyLodIngestion");
             t.setDaemon(true);
             return t;
         });
@@ -149,6 +173,7 @@ public class LodReceptionService implements AutoCloseable {
             case VoxyPacketPayload.MSG_SYNC_COMPLETE -> handleSyncComplete(payload);
             case VoxyPacketPayload.MSG_CACHE_QUERY -> handleCacheQuery(payload);
             case VoxyPacketPayload.MSG_SYNC_PROGRESS -> handleSyncProgress(payload);
+            case VoxyPacketPayload.MSG_LOD_BATCH -> handleBatch(payload);
         }
 
         // Update congestion control
@@ -200,12 +225,52 @@ public class LodReceptionService implements AutoCloseable {
         if (isLast) {
             // Complete! Process the section
             reassemblyBuffers.remove(sectionId);
-            sectionsReceived.incrementAndGet();
 
             byte[] completeData = buffer.assemble();
-            if (completeData != null) {
-                processingExecutor.submit(() -> processSection(completeData));
+            if (completeData != null && completeData.length > 0) {
+                byte type = completeData[0];
+                byte[] actualData = new byte[completeData.length - 1];
+                System.arraycopy(completeData, 1, actualData, 0, actualData.length);
+
+                if (type == 1) {
+                    processingExecutor.submit(() -> handleBatchData(actualData));
+                } else {
+                    sectionsReceived.incrementAndGet();
+                    processingExecutor.submit(() -> processSection(actualData));
+                }
             }
+        }
+    }
+
+    /**
+     * Handle batched sections directly.
+     */
+    private void handleBatch(VoxyPacketPayload payload) {
+        processingExecutor.submit(() -> handleBatchData(payload.data()));
+    }
+
+    /**
+     * Parse and process batched column sections data.
+     */
+    private void handleBatchData(byte[] batchData) {
+        try {
+            java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(batchData));
+            int sectionCount = in.readByte() & 0xFF;
+
+            // Increment the counter of received sections by the batch size
+            sectionsReceived.addAndGet(sectionCount);
+
+            for (int i = 0; i < sectionCount; i++) {
+                long key = in.readLong(); // Read key
+                int length = in.readInt();
+                byte[] sectionData = new byte[length];
+                in.readFully(sectionData);
+
+                // Submit to multi-threaded executor
+                processingExecutor.submit(() -> processSection(sectionData));
+            }
+        } catch (java.io.IOException e) {
+            Logger.error("Failed to parse LOD batch data: " + e.getMessage());
         }
     }
 
@@ -257,7 +322,6 @@ public class LodReceptionService implements AutoCloseable {
                 return;
             }
 
-            // Get or create section in world engine
             long key = sectionData.getKey();
 
             // Check if all required models for this section are available
@@ -270,35 +334,68 @@ public class LodReceptionService implements AutoCloseable {
             // Mark as received
             receivedSections.add(key);
 
-            WorldSection section = worldEngine.acquire(key);
-
-            if (section == null) {
-                Logger.warn("Failed to acquire section for key: " + key);
-                return;
-            }
-
-            try {
-                // Apply data to section
-                if (sectionData.hasData() && idRemapper.isReady()) {
-                    applyVoxelData(section, sectionData.voxelData);
+            if (sectionData.hasData() && idRemapper.isReady()) {
+                // Perform the heavy block ID remapping on the background thread!
+                long[] remapped = new long[sectionData.voxelData.length];
+                for (int i = 0; i < remapped.length; i++) {
+                    remapped[i] = idRemapper.remapVoxelId(sectionData.voxelData[i]);
                 }
-
-                // Update non-empty children
-                section._unsafeSetNonEmptyChildren(sectionData.nonEmptyChildren);
-
-                // Mark dirty to trigger rendering - must use worldEngine.markDirty()
-                // to trigger the dirty callback that notifies the render system
-                worldEngine.markDirty(section);
-
-                sectionsApplied.incrementAndGet();
-
-            } finally {
-                section.release();
+                preparedSections.offer(new PreparedSection(key, remapped, sectionData.nonEmptyChildren));
+            } else {
+                preparedSections.offer(new PreparedSection(key, null, sectionData.nonEmptyChildren));
             }
+
+            // Trigger single-threaded ingestion
+            triggerIngestion();
 
         } catch (Exception e) {
             Logger.error("Error processing section: " + e.getMessage());
             Logger.error(e);
+        }
+    }
+
+    private void triggerIngestion() {
+        if (ingestionScheduled.compareAndSet(false, true)) {
+            ingestionExecutor.submit(this::runIngestion);
+        }
+    }
+
+    private void runIngestion() {
+        try {
+            PreparedSection prepared;
+            while ((prepared = preparedSections.poll()) != null) {
+                applyPreparedSection(prepared);
+            }
+        } finally {
+            ingestionScheduled.set(false);
+            if (!preparedSections.isEmpty()) {
+                triggerIngestion();
+            }
+        }
+    }
+
+    private void applyPreparedSection(PreparedSection prepared) {
+        try {
+            WorldSection section = worldEngine.acquire(prepared.key);
+            if (section == null) {
+                return;
+            }
+            try {
+                if (prepared.remappedVoxelData != null) {
+                    long[] dataArray = section._unsafeGetRawDataArray();
+                    if (dataArray != null) {
+                        int count = Math.min(prepared.remappedVoxelData.length, dataArray.length);
+                        System.arraycopy(prepared.remappedVoxelData, 0, dataArray, 0, count);
+                    }
+                }
+                section._unsafeSetNonEmptyChildren(prepared.nonEmptyChildren);
+                worldEngine.markDirty(section);
+                sectionsApplied.incrementAndGet();
+            } finally {
+                section.release();
+            }
+        } catch (Exception e) {
+            Logger.error("Error ingesting prepared section: " + e.getMessage());
         }
     }
 
@@ -406,8 +503,7 @@ public class LodReceptionService implements AutoCloseable {
      * Called when congestion control adjusts rate.
      */
     private void onRateUpdate() {
-        // Optionally send rate update to server
-        // congestionControl.sendRateUpdate();
+        congestionControl.sendRateUpdate();
     }
 
     /**
@@ -436,6 +532,7 @@ public class LodReceptionService implements AutoCloseable {
     public void close() {
         isActive.set(false);
         processingExecutor.shutdown();
+        ingestionExecutor.shutdown();
         reassemblyBuffers.clear();
         receivedSections.clear();
         idRemapper.reset();
@@ -468,91 +565,4 @@ public class LodReceptionService implements AutoCloseable {
         }
     }
 
-    /**
-     * Render the LOD sync progress bar HUD overlay.
-     */
-    @SubscribeEvent
-    public void onRenderGui(RenderGuiEvent.Post event) {
-        if (!me.cortex.voxy.client.config.VoxyConfig.CONFIG.showSyncProgressBar) {
-            return;
-        }
-
-        if (!syncInProgress && completeAnimationTicks <= 0) {
-            return;
-        }
-
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.options.hideGui || mc.level == null) {
-            return; // Respect F1 mode and only render in game
-        }
-
-        int screenWidth = mc.getWindow().getGuiScaledWidth();
-
-        // Calculate progress percentage
-        int total = this.totalSections;
-        int current = this.matchedSections + this.sectionsReceived.get();
-
-        if (total <= 0) {
-            total = 1;
-        }
-        if (current > total) {
-            current = total;
-        }
-
-        float progress = (float) current / total;
-        if (progress > 1.0f) {
-            progress = 1.0f;
-        }
-
-        // If progress is 100%, trigger completion animation immediately instead of showing it forever
-        if (progress >= 0.999f && syncInProgress) {
-            if (completeAnimationTicks == 0) {
-                // If we've actually shown some progress (we had missing sections), show sync complete for 3s (60 ticks)
-                // Otherwise, it was already 100% matched, so show "LOD Cache Matched!" for 1.5s (30 ticks)
-                completeAnimationTicks = hasShownSyncProgress ? 60 : 30;
-                syncInProgress = false;
-            }
-        } else if (progress < 0.999f && syncInProgress) {
-            hasShownSyncProgress = true;
-        }
-
-        // Draw a beautiful progress bar overlay at the top of the screen
-        int barWidth = 180;
-        int barHeight = 4;
-        int bgHeight = 20;
-
-        int x = (screenWidth - barWidth) / 2;
-        int y = 12; // Top margin
-
-        GuiGraphics graphics = event.getGuiGraphics();
-
-        // 1. Draw sleek glassmorphism background panel (dark with slight alpha, bordered)
-        graphics.fill(x - 10, y - 4, x + barWidth + 10, y + bgHeight, 0x99101014); // Dark panel background
-        graphics.fill(x - 10, y - 4, x + barWidth + 10, y - 3, 0xAA00D2FF); // Top cyan highlight border
-
-        // 2. Draw Text (LOD Sync: 87.5% or LOD Sync Complete!)
-        String title;
-        int titleColor;
-        if (syncInProgress) {
-            title = String.format("LOD Sync: %.1f%% (%s / %s)", progress * 100.0f, 
-                    String.format("%,d", current), String.format("%,d", total));
-            titleColor = 0xFFFFFFFF;
-        } else {
-            title = hasShownSyncProgress ? "LOD Sync Complete!" : "LOD Cache Matched!";
-            titleColor = 0xFF00FF88; // Sleek green
-            progress = 1.0f;
-        }
-
-        graphics.drawCenteredString(mc.font, title, screenWidth / 2, y, titleColor);
-
-        // 3. Draw Progress Bar track
-        int barY = y + 10;
-        graphics.fill(x, barY, x + barWidth, barY + barHeight, 0xFF202028); // Empty track
-
-        // 4. Draw Progress Bar fill (cyan glow)
-        int fillWidth = Math.round(progress * barWidth);
-        if (fillWidth > 0) {
-            graphics.fill(x, barY, x + fillWidth, barY + barHeight, 0xFF00D2FF); // Cyan filled bar
-        }
-    }
 }

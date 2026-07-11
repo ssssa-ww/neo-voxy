@@ -39,6 +39,7 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
     public static final byte MSG_SYNC_COMPLETE = 7; // Server→Client: signals streaming complete
     public static final byte MSG_REQUEST_SECTIONS = 8; // Client→Server: request specific sections (pull model)
     public static final byte MSG_SYNC_PROGRESS = 9; // Server→Client: sync progress [totalSections:4][matchedSections:4][sentSections:4]
+    public static final byte MSG_LOD_BATCH = 10; // Server→Client: batch of LOD sections for a single area column
 
     @NotNull
     @Override
@@ -352,5 +353,23 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
         int matched = ((data[4] & 0xFF) << 24) | ((data[5] & 0xFF) << 16) | ((data[6] & 0xFF) << 8) | (data[7] & 0xFF);
         int sent = ((data[8] & 0xFF) << 24) | ((data[9] & 0xFF) << 16) | ((data[10] & 0xFF) << 8) | (data[11] & 0xFF);
         return new int[]{total, matched, sent};
+    }
+
+    /**
+     * Helper to create a LOD batch payload.
+     */
+    public static VoxyPacketPayload lodBatch(java.util.List<Long> keys, java.util.List<byte[]> sectionsData) {
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        java.io.DataOutputStream out = new java.io.DataOutputStream(baos);
+        try {
+            out.writeByte(keys.size());
+            for (int i = 0; i < keys.size(); i++) {
+                out.writeLong(keys.get(i));
+                byte[] sData = sectionsData.get(i);
+                out.writeInt(sData.length);
+                out.write(sData);
+            }
+        } catch (java.io.IOException ignored) {}
+        return new VoxyPacketPayload(MSG_LOD_BATCH, baos.toByteArray());
     }
 }

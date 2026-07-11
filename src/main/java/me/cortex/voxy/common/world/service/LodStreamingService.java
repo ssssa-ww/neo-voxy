@@ -30,6 +30,7 @@ public class LodStreamingService implements AutoCloseable {
     private final WorldEngine worldEngine;
     private final SharedBandwidthLimit sharedBandwidthLimit;
     private final ConcurrentHashMap<UUID, PlayerStreamingState> playerStates = new ConcurrentHashMap<>();
+    private static final java.util.concurrent.atomic.AtomicInteger BATCH_ID_GEN = new java.util.concurrent.atomic.AtomicInteger(1000000);
 
     private final ScheduledExecutorService scheduler;
     private final AtomicBoolean isActive = new AtomicBoolean(true);
@@ -133,6 +134,7 @@ public class LodStreamingService implements AutoCloseable {
         PlayerStreamingState state = playerStates.get(player.getUUID());
         if (state != null) {
             state.clientDesiredRate = desiredRate;
+            state.sender.setLimitKBps(desiredRate);
         }
     }
 
@@ -179,10 +181,17 @@ public class LodStreamingService implements AutoCloseable {
         // Request bloom filter from client to skip sections they already have
         VoxyNetworkHandler.sendToPlayer(player, VoxyPacketPayload.cacheQuery(new long[0]));
 
-        // Start server-driven streaming (ring-based expansion from player position)
-        scheduler.submit(() -> startStreaming(state));
+        // Schedule a handshake timeout task (2.5 seconds) to start streaming anyway if client fails to respond
+        scheduler.schedule(() -> {
+            PlayerStreamingState curState = playerStates.get(player.getUUID());
+            if (curState != null && !curState.hasStartedStreaming) {
+                curState.hasStartedStreaming = true;
+                Logger.info("Client bloom filter handshake timed out for " + player.getName().getString() + ", starting streaming with fallback filter");
+                startStreaming(curState);
+            }
+        }, 2500, TimeUnit.MILLISECONDS);
 
-        Logger.info("Server-driven streaming enabled for " + player.getName().getString());
+        Logger.info("Server-driven streaming handshake scheduled for " + player.getName().getString());
     }
 
     /**
@@ -234,20 +243,27 @@ public class LodStreamingService implements AutoCloseable {
                 int sectionX = playerChunkX + dx;
                 int sectionZ = playerChunkZ + dz;
 
-                // Stream all Y levels and LOD levels
+                java.util.List<Long> batchKeys = new java.util.ArrayList<>();
+                java.util.List<byte[]> batchData = new java.util.ArrayList<>();
+
+                // Stream all Y levels and LOD levels in this column area
                 for (int lvl = WorldEngine.MAX_LOD_LAYER; lvl >= 0; lvl--) {
                     int lvlX = sectionX >> lvl;
                     int lvlZ = sectionZ >> lvl;
+
                     for (int y = -4; y < 20; y++) { // Reasonable Y range
                         int lvlY = y >> lvl;
                         long key = WorldEngine.getWorldSectionId(lvl, lvlX, lvlY, lvlZ);
 
                         // Skip if already sent or in bloom filter
+                        boolean isNewProgress = state.scannedSectionsForProgress.add(key);
                         if (state.sentSections.contains(key) ||
                                 (state.clientCacheFilter != null && state.clientCacheFilter.mightContain(key))) {
                             sectionsFound++;
-                            state.totalSectionsScanned++;
-                            state.matchedSectionsScanned++;
+                            if (isNewProgress) {
+                                state.totalSectionsScanned++;
+                                state.matchedSectionsScanned++;
+                            }
                             continue;
                         }
 
@@ -262,19 +278,21 @@ public class LodStreamingService implements AutoCloseable {
                                     hasContent = section.getNonEmptyBlockCount() > 0;
                                 } else {
                                     // Level 1+ sections must have a non-zero child existence mask
-                                    // This prevents sending sections that would cause "existence mask of 0"
-                                    // warnings on client
                                     byte childMask = section.getNonEmptyChildren();
                                     hasContent = childMask != 0;
                                 }
 
                                 if (hasContent) {
                                     sectionsFound++; // Server has this section
-                                    state.totalSectionsScanned++;
+                                    if (isNewProgress) {
+                                        state.totalSectionsScanned++;
+                                    }
 
-                                    // Send this section
+                                    // Serialize this section
                                     byte[] data = SectionSerializer.serialize(section);
-                                    state.sender.queueSection(data, (int) key);
+                                    batchKeys.add(key);
+                                    batchData.add(data);
+
                                     state.sentSections.add(key);
                                     state.clientCacheFilter.add(key); // Track in bloom filter for persistence
                                     sectionsQueued++;
@@ -284,6 +302,21 @@ public class LodStreamingService implements AutoCloseable {
                             }
                         }
                     }
+                }
+
+                // Send the batched sections for this area column in one go
+                if (!batchKeys.isEmpty()) {
+                    VoxyPacketPayload batchPayload = VoxyPacketPayload.lodBatch(batchKeys, batchData);
+                    byte[] batchBytes = batchPayload.data();
+
+                    // Prefix with 1-byte header: 1 = MSG_LOD_BATCH
+                    byte[] dataToSend = new byte[batchBytes.length + 1];
+                    dataToSend[0] = 1;
+                    System.arraycopy(batchBytes, 0, dataToSend, 1, batchBytes.length);
+
+                    // Use a globally unique batchId for reassembly to prevent client-side packet collisions
+                    int batchId = BATCH_ID_GEN.incrementAndGet();
+                    state.sender.queueSection(dataToSend, batchId);
                 }
             }
         }
@@ -375,6 +408,12 @@ public class LodStreamingService implements AutoCloseable {
             } else if (state.clientCacheFilter == null) {
                 state.clientCacheFilter = BloomFilter.forExpectedElements(10000);
             }
+
+            // Start streaming now that the handshake has succeeded and we have the client cache
+            if (!state.hasStartedStreaming) {
+                state.hasStartedStreaming = true;
+                scheduler.submit(() -> startStreaming(state));
+            }
         }
     }
 
@@ -432,6 +471,9 @@ public class LodStreamingService implements AutoCloseable {
         ServerPlayer player;
         final ChunkedLodSender sender;
         final Set<Long> sentSections = ConcurrentHashMap.newKeySet();
+        final Set<Long> scannedSectionsForProgress = ConcurrentHashMap.newKeySet();
+
+        volatile boolean hasStartedStreaming = false;
 
         // Streaming state
         int currentRing = 0;
