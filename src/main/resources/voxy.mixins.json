@@ -31,7 +31,8 @@
     "iris.MixinPackRenderTargetDirectives",
     "iris.MixinProgramSet",
     "iris.MixinShaderPackSourceNames",
-    "iris.MixinStandardMacros"
+    "iris.MixinStandardMacros",
+    "colorwheel.MixinClrwlBackend"
   ],
   "injectors": {
     "defaultRequire": 1
