@@ -225,7 +225,7 @@ public class VoxyServer {
      */
     private static void handleClientMessage(ServerPlayer player, VoxyPacketPayload payload) {
         switch (payload.messageType()) {
-            case VoxyPacketPayload.MSG_SYNC_REQUEST -> handleSyncRequest(player);
+            case VoxyPacketPayload.MSG_SYNC_REQUEST -> handleSyncRequest(player, payload);
             case VoxyPacketPayload.MSG_CACHE_RESPONSE -> handleCacheResponse(player, payload);
             case VoxyPacketPayload.MSG_RATE_UPDATE -> handleRateUpdate(player, payload);
             case VoxyPacketPayload.MSG_REQUEST_SECTIONS -> handleSectionRequest(player, payload);
@@ -235,7 +235,7 @@ public class VoxyServer {
     /**
      * Handle sync request from a player.
      */
-    private static void handleSyncRequest(ServerPlayer player) {
+    private static void handleSyncRequest(ServerPlayer player, VoxyPacketPayload payload) {
         Logger.info("Received sync request from " + player.getName().getString());
 
         ServerLevel level = player.serverLevel();
@@ -273,7 +273,7 @@ public class VoxyServer {
                 });
 
         // Actually start the sync for this player
-        service.startSyncForPlayer(player);
+        service.startSyncForPlayer(player, payload);
         Logger.info(
                 "LOD streaming started for " + player.getName().getString() + " in " + level.dimension().location());
     }
@@ -478,7 +478,7 @@ public class VoxyServer {
      */
     public static void broadcastSync(ServerLevel level) {
         for (ServerPlayer player : level.players()) {
-            handleSyncRequest(player);
+            handleSyncRequest(player, new VoxyPacketPayload(VoxyPacketPayload.MSG_SYNC_REQUEST, new byte[0]));
         }
     }
 

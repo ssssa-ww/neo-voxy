@@ -161,37 +161,44 @@ public class LodStreamingService implements AutoCloseable {
      * Start LOD sync for a player. Called by VoxyServer when it receives a sync
      * request.
      */
-    public void startSyncForPlayer(ServerPlayer player) {
+    public void startSyncForPlayer(ServerPlayer player, VoxyPacketPayload payload) {
         Logger.info("Received sync request from " + player.getName().getString());
 
         PlayerStreamingState state = playerStates.computeIfAbsent(
                 player.getUUID(),
                 uuid -> new PlayerStreamingState(player, sharedBandwidthLimit, perPlayerLimitKBps));
 
-        // Load saved bloom filter from previous session
-        BloomFilter savedFilter = loadPlayerCache(player.getUUID());
-        if (savedFilter != null) {
-            state.clientCacheFilter = savedFilter;
-            Logger.info("Using saved bloom filter for " + player.getName().getString());
+        // Parse bloom filter sent by client in the sync request
+        BloomFilter clientCache = null;
+        if (payload != null && payload.data() != null && payload.data().length > 0) {
+            try {
+                clientCache = BloomFilter.fromBytes(payload.data());
+                Logger.info("Parsed client cache bloom filter from sync request for " + player.getName().getString()
+                        + " (size: " + clientCache.getSerializedSize() + " bytes)");
+            } catch (Exception e) {
+                Logger.error("Failed to parse bloom filter from sync request for " + player.getName().getString() + ": " + e.getMessage());
+            }
+        }
+
+        if (clientCache != null) {
+            state.clientCacheFilter = clientCache;
+        } else {
+            // Load saved bloom filter from previous session as backup
+            BloomFilter savedFilter = loadPlayerCache(player.getUUID());
+            if (savedFilter != null) {
+                state.clientCacheFilter = savedFilter;
+                Logger.info("Using saved bloom filter for " + player.getName().getString());
+            }
         }
 
         // Send mapper data
         sendMapperSync(player);
 
-        // Request bloom filter from client to skip sections they already have
-        VoxyNetworkHandler.sendToPlayer(player, VoxyPacketPayload.cacheQuery(new long[0]));
-
-        // Schedule a handshake timeout task (2.5 seconds) to start streaming anyway if client fails to respond
-        scheduler.schedule(() -> {
-            PlayerStreamingState curState = playerStates.get(player.getUUID());
-            if (curState != null && !curState.hasStartedStreaming) {
-                curState.hasStartedStreaming = true;
-                Logger.info("Client bloom filter handshake timed out for " + player.getName().getString() + ", starting streaming with fallback filter");
-                startStreaming(curState);
-            }
-        }, 2500, TimeUnit.MILLISECONDS);
-
-        Logger.info("Server-driven streaming handshake scheduled for " + player.getName().getString());
+        // Start streaming immediately since we have client cache info
+        if (!state.hasStartedStreaming) {
+            state.hasStartedStreaming = true;
+            scheduler.submit(() -> startStreaming(state));
+        }
     }
 
     /**
@@ -211,7 +218,7 @@ public class LodStreamingService implements AutoCloseable {
      * data.
      */
     private void startStreaming(PlayerStreamingState state) {
-        if (!isActive.get() || !state.player.isAlive() || !state.player.serverLevel().players().contains(state.player)) {
+        if (!isActive.get() || state.player.hasDisconnected()) {
             onPlayerDisconnect(state.player.getUUID());
             return;
         }
@@ -371,14 +378,14 @@ public class LodStreamingService implements AutoCloseable {
      * Maintenance mode - periodically rescans from player position for new LODs.
      */
     private void scheduleMaintenanceScan(PlayerStreamingState state) {
-        if (!isActive.get() || !state.player.isAlive() || !state.player.serverLevel().players().contains(state.player)) {
+        if (!isActive.get() || state.player.hasDisconnected()) {
             onPlayerDisconnect(state.player.getUUID());
             return;
         }
 
         // Schedule a rescan starting from ring 0 after 30 seconds
         scheduler.schedule(() -> {
-            if (isActive.get() && state.player.isAlive() && state.player.serverLevel().players().contains(state.player)) {
+            if (isActive.get() && !state.player.hasDisconnected()) {
                 state.currentRing = 0;
                 state.consecutiveEmptyRings = 0;
                 Logger.info("Starting maintenance scan for " + state.player.getName().getString());

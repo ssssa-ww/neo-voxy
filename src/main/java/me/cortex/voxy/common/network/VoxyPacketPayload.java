@@ -94,10 +94,10 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
     }
 
     /**
-     * Helper to create a sync request payload.
+     * Helper to create a sync request payload with the client's cache bloom filter.
      */
-    public static VoxyPacketPayload syncRequest() {
-        return new VoxyPacketPayload(MSG_SYNC_REQUEST, new byte[0]);
+    public static VoxyPacketPayload syncRequest(BloomFilter bloomFilter) {
+        return new VoxyPacketPayload(MSG_SYNC_REQUEST, bloomFilter != null ? bloomFilter.toBytes() : new byte[0]);
     }
 
     /**

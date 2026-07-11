@@ -86,6 +86,9 @@ public class LodReceptionService implements AutoCloseable {
     /** Whether we've already requested sync */
     private volatile boolean syncRequested = false;
 
+    /** Whether local cache preloading is completed */
+    private final AtomicBoolean preloadingCompleted = new AtomicBoolean(false);
+
     // Progress bar tracking
     private volatile int totalSections = 0;
     private volatile int matchedSections = 0;
@@ -121,6 +124,8 @@ public class LodReceptionService implements AutoCloseable {
                 Logger.info("Pre-loaded " + this.receivedSections.size() + " cached section positions from local storage");
             } catch (Exception e) {
                 Logger.error("Failed to load cached section positions: " + e.getMessage());
+            } finally {
+                this.preloadingCompleted.set(true);
             }
         });
 
@@ -147,13 +152,20 @@ public class LodReceptionService implements AutoCloseable {
             return;
         }
 
-        // Request sync from server if not done yet (to get mapper)
-        if (!syncRequested) {
+        // Request sync from server if not done yet, but wait until local cache preloading is complete
+        if (!syncRequested && preloadingCompleted.get()) {
             syncRequested = true;
             syncInProgress = true;
             hasShownSyncProgress = false;
-            Logger.info("Requesting LOD sync for server-driven streaming");
-            VoxyNetworkHandler.sendToServer(VoxyPacketPayload.syncRequest());
+            
+            // Build bloom filter of sections we already have
+            BloomFilter filter = BloomFilter.forExpectedElements(Math.max(100, receivedSections.size()));
+            for (Long key : receivedSections) {
+                filter.add(key);
+            }
+            
+            Logger.info("Requesting LOD sync for server-driven streaming with " + receivedSections.size() + " cached sections");
+            VoxyNetworkHandler.sendToServer(VoxyPacketPayload.syncRequest(filter));
         }
 
         // Process pending sections whose models are now available
@@ -516,7 +528,11 @@ public class LodReceptionService implements AutoCloseable {
         }
 
         Logger.info("Requesting LOD sync from server...");
-        VoxyNetworkHandler.sendToServer(VoxyPacketPayload.syncRequest());
+        BloomFilter filter = BloomFilter.forExpectedElements(Math.max(100, receivedSections.size()));
+        for (Long key : receivedSections) {
+            filter.add(key);
+        }
+        VoxyNetworkHandler.sendToServer(VoxyPacketPayload.syncRequest(filter));
     }
 
     /**
