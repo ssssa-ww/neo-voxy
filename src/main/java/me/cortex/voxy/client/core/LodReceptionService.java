@@ -401,7 +401,7 @@ public class LodReceptionService implements AutoCloseable {
                     }
                 }
                 section._unsafeSetNonEmptyChildren(prepared.nonEmptyChildren);
-                worldEngine.markDirty(section);
+                worldEngine.markDirty(section, WorldEngine.DEFAULT_UPDATE_FLAGS, 0x3F);
                 sectionsApplied.incrementAndGet();
             } finally {
                 section.release();
@@ -420,7 +420,7 @@ public class LodReceptionService implements AutoCloseable {
      */
     private boolean areModelsAvailable(long[] voxelData) {
         if (!idRemapper.isReady()) {
-            return false; // Cannot check model availability without a remapper
+            return true; // Cannot check model availability without a remapper
         }
         // Sample voxel data to check if models are ready
         // Only check a small sample to avoid performance issues
@@ -436,7 +436,6 @@ public class LodReceptionService implements AutoCloseable {
                 if (!modelBakery.factory.hasModelForBlockId(clientBlockId)) {
                     // Request the model to be baked
                     modelBakery.requestBlockBake(clientBlockId);
-                    return false;
                 }
             }
             // Limit checking to first 16 unique blocks to keep it fast

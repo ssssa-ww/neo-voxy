@@ -62,7 +62,19 @@ public class RocksDBStorageBackend extends StorageBackend {
                 .setLevelCompactionDynamicLevelBytes(true)
                 .optimizeForPointLookup(128);
 
-        var bCache = new HyperClockCache(128 * 1024L * 1024L, 0, 4, false);
+        long cacheSizeLimit = 128 * 1024L * 1024L; // Default 128MB
+        if (me.cortex.voxy.commonImpl.VoxyCommon.IS_DEDICATED_SERVER) {
+            cacheSizeLimit = 16 * 1024L * 1024L; // 16MB on dedicated server
+        }
+        var override = System.getProperty("voxy.server.blockCacheSizeMB", "");
+        if (!override.isEmpty()) {
+            try {
+                cacheSizeLimit = Long.parseLong(override) * 1024L * 1024L;
+            } catch (NumberFormatException e) {
+                // Ignore
+            }
+        }
+        var bCache = new HyperClockCache(cacheSizeLimit, 0, 4, false);
         var filter = new BloomFilter(10);
         cfWorldSecOpts.setTableFormatConfig(new BlockBasedTableConfig()
                 .setCacheIndexAndFilterBlocksWithHighPriority(true)

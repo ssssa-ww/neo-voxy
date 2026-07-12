@@ -191,12 +191,25 @@ public class LodStreamingService implements AutoCloseable {
             }
         }
 
+        // Reset streaming ring to start syncing from center
+        boolean wasInMaintenance = state.consecutiveEmptyRings >= 5;
+        state.currentRing = 0;
+        state.consecutiveEmptyRings = 0;
+
+        if (state.maintenanceFuture != null) {
+            state.maintenanceFuture.cancel(false);
+            state.maintenanceFuture = null;
+        }
+
         // Send mapper data
         sendMapperSync(player);
 
         // Start streaming immediately since we have client cache info
         if (!state.hasStartedStreaming) {
             state.hasStartedStreaming = true;
+            scheduler.submit(() -> startStreaming(state));
+        } else if (wasInMaintenance) {
+            Logger.info("Player " + player.getName().getString() + " requested sync while in maintenance mode, waking up and resetting ring");
             scheduler.submit(() -> startStreaming(state));
         }
     }
@@ -383,13 +396,22 @@ public class LodStreamingService implements AutoCloseable {
             return;
         }
 
+        // Cancel existing maintenance future if any
+        if (state.maintenanceFuture != null) {
+            state.maintenanceFuture.cancel(false);
+        }
+
         // Schedule a rescan starting from ring 0 after 30 seconds
-        scheduler.schedule(() -> {
+        state.maintenanceFuture = scheduler.schedule(() -> {
+            state.maintenanceFuture = null;
             if (isActive.get() && !state.player.hasDisconnected()) {
-                state.currentRing = 0;
-                state.consecutiveEmptyRings = 0;
-                Logger.info("Starting maintenance scan for " + state.player.getName().getString());
-                startStreaming(state);
+                // Ensure we don't start duplicate loops
+                if (state.consecutiveEmptyRings >= 5) {
+                    state.currentRing = 0;
+                    state.consecutiveEmptyRings = 0;
+                    Logger.info("Starting maintenance scan for " + state.player.getName().getString());
+                    startStreaming(state);
+                }
             } else {
                 onPlayerDisconnect(state.player.getUUID());
             }
@@ -420,6 +442,37 @@ public class LodStreamingService implements AutoCloseable {
             if (!state.hasStartedStreaming) {
                 state.hasStartedStreaming = true;
                 scheduler.submit(() -> startStreaming(state));
+            }
+        }
+    }
+
+    /**
+     * Tick all active streaming states to monitor player movement and update streaming rings.
+     */
+    public void tick() {
+        if (!isActive.get()) return;
+        for (PlayerStreamingState state : playerStates.values()) {
+            if (state.player.hasDisconnected()) continue;
+            int playerChunkX = state.player.getBlockX() >> 5;
+            int playerChunkZ = state.player.getBlockZ() >> 5;
+            if (playerChunkX != state.lastPlayerSecX || playerChunkZ != state.lastPlayerSecZ) {
+                state.lastPlayerSecX = playerChunkX;
+                state.lastPlayerSecZ = playerChunkZ;
+
+                boolean wasInMaintenance = state.consecutiveEmptyRings >= 5;
+                state.currentRing = 0;
+                state.consecutiveEmptyRings = 0;
+
+                if (wasInMaintenance) {
+                    Logger.info("Player " + state.player.getName().getString() + " moved while in maintenance mode, waking up and resetting ring");
+                    if (state.maintenanceFuture != null) {
+                        state.maintenanceFuture.cancel(false);
+                        state.maintenanceFuture = null;
+                    }
+                    scheduler.submit(() -> startStreaming(state));
+                } else {
+                    Logger.info("Player " + state.player.getName().getString() + " moved, resetting streaming ring");
+                }
             }
         }
     }
@@ -483,10 +536,13 @@ public class LodStreamingService implements AutoCloseable {
         volatile boolean hasStartedStreaming = false;
 
         // Streaming state
-        int currentRing = 0;
-        int consecutiveEmptyRings = 0;
-        int clientDesiredRate = SharedBandwidthLimit.DEFAULT_PLAYER_LIMIT_KBPS;
-        BloomFilter clientCacheFilter = null;
+        volatile int currentRing = 0;
+        volatile int consecutiveEmptyRings = 0;
+        volatile int clientDesiredRate = SharedBandwidthLimit.DEFAULT_PLAYER_LIMIT_KBPS;
+        volatile BloomFilter clientCacheFilter = null;
+        volatile int lastPlayerSecX = Integer.MAX_VALUE;
+        volatile int lastPlayerSecZ = Integer.MAX_VALUE;
+        volatile java.util.concurrent.ScheduledFuture<?> maintenanceFuture = null;
 
         // Progress tracking
         int totalSectionsScanned = 0;
@@ -499,6 +555,10 @@ public class LodStreamingService implements AutoCloseable {
         }
 
         void close() {
+            if (maintenanceFuture != null) {
+                maintenanceFuture.cancel(false);
+                maintenanceFuture = null;
+            }
             sender.close();
         }
     }

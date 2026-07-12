@@ -443,6 +443,11 @@ public class VoxyServer {
         for (var ingestor : autoIngestors.values()) {
             ingestor.tick();
         }
+
+        // Tick active streaming services
+        for (var service : getAllStreamingServices()) {
+            service.tick();
+        }
     }
 
     /**
