@@ -191,25 +191,12 @@ public class LodStreamingService implements AutoCloseable {
             }
         }
 
-        // Reset streaming ring to start syncing from center
-        boolean wasInMaintenance = state.consecutiveEmptyRings >= 5;
-        state.currentRing = 0;
-        state.consecutiveEmptyRings = 0;
-
-        if (state.maintenanceFuture != null) {
-            state.maintenanceFuture.cancel(false);
-            state.maintenanceFuture = null;
-        }
-
         // Send mapper data
         sendMapperSync(player);
 
         // Start streaming immediately since we have client cache info
         if (!state.hasStartedStreaming) {
             state.hasStartedStreaming = true;
-            scheduler.submit(() -> startStreaming(state));
-        } else if (wasInMaintenance) {
-            Logger.info("Player " + player.getName().getString() + " requested sync while in maintenance mode, waking up and resetting ring");
             scheduler.submit(() -> startStreaming(state));
         }
     }
