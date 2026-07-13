@@ -426,6 +426,8 @@ public class LodReceptionService implements AutoCloseable {
         // Only check a small sample to avoid performance issues
         it.unimi.dsi.fastutil.ints.IntOpenHashSet checkedBlocks = new it.unimi.dsi.fastutil.ints.IntOpenHashSet();
 
+        boolean allAvailable = true;
+
         // Sample every 64th voxel to keep it fast
         int step = Math.max(1, voxelData.length / 64);
         for (int i = 0; i < voxelData.length; i += step) {
@@ -436,6 +438,7 @@ public class LodReceptionService implements AutoCloseable {
                 if (!modelBakery.factory.hasModelForBlockId(clientBlockId)) {
                     // Request the model to be baked
                     modelBakery.requestBlockBake(clientBlockId);
+                    allAvailable = false;
                 }
             }
             // Limit checking to first 16 unique blocks to keep it fast
@@ -443,7 +446,7 @@ public class LodReceptionService implements AutoCloseable {
                 break;
             }
         }
-        return true;
+        return allAvailable;
     }
 
     /**
@@ -467,7 +470,32 @@ public class LodReceptionService implements AutoCloseable {
         } else {
             maxChecksPerTick = 3072;
         }
-        for (var entry : pendingSections.entrySet()) {
+        
+        java.util.List<java.util.Map.Entry<Long, byte[]>> entries = new java.util.ArrayList<>(pendingSections.entrySet());
+        var player = Minecraft.getInstance().player;
+        final int playerChunkX = player != null ? player.getBlockX() >> 5 : 0;
+        final int playerChunkZ = player != null ? player.getBlockZ() >> 5 : 0;
+        
+        entries.sort((a, b) -> {
+            long keyA = a.getKey();
+            long keyB = b.getKey();
+            int lvlA = WorldEngine.getLevel(keyA);
+            int lvlB = WorldEngine.getLevel(keyB);
+            if (lvlA != lvlB) {
+                return Integer.compare(lvlB, lvlA); // Higher level (coarser) first
+            }
+            // Same level, closer to player first
+            int xA = WorldEngine.getX(keyA) << lvlA;
+            int zA = WorldEngine.getZ(keyA) << lvlA;
+            int xB = WorldEngine.getX(keyB) << lvlB;
+            int zB = WorldEngine.getZ(keyB) << lvlB;
+            
+            double distA = Math.pow(xA - playerChunkX, 2) + Math.pow(zA - playerChunkZ, 2);
+            double distB = Math.pow(xB - playerChunkX, 2) + Math.pow(zB - playerChunkZ, 2);
+            return Double.compare(distA, distB);
+        });
+
+        for (var entry : entries) {
             if (checked >= maxChecksPerTick) {
                 break;
             }

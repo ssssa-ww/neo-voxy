@@ -239,6 +239,9 @@ public class LodStreamingService implements AutoCloseable {
         int playerChunkX = state.player.getBlockX() >> 5; // 32-block sections
         int playerChunkZ = state.player.getBlockZ() >> 5;
 
+        int minSecY = (state.player.serverLevel().getMinSection() >> 1) - 2;
+        int maxSecY = (state.player.serverLevel().getMaxSection() >> 1) + 2;
+
         // Stream sections in current ring
         for (int dx = -currentRing; dx <= currentRing; dx++) {
             for (int dz = -currentRing; dz <= currentRing; dz++) {
@@ -258,7 +261,7 @@ public class LodStreamingService implements AutoCloseable {
                     int lvlX = sectionX >> lvl;
                     int lvlZ = sectionZ >> lvl;
 
-                    for (int y = -4; y < 20; y++) { // Reasonable Y range
+                    for (int y = minSecY; y < maxSecY; y++) {
                         int lvlY = y >> lvl;
                         long key = WorldEngine.getWorldSectionId(lvl, lvlX, lvlY, lvlZ);
 
