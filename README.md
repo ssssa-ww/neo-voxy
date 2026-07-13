@@ -40,10 +40,8 @@ Neo-Voxy is a NeoForge port of the Voxy mod, a far-distance rendering mod utiliz
 | Feature | Status |
 |---------|--------|
 | LOD Streaming | ✅ Functional / Highly Optimized |
-| Server-to-Client Sync | ✅ Functional |
 | Shader Support (Iris) | ✅ Voxy Shaders Functional |
-| Singleplayer Chunky Ingest | ✅ Functional |
-| Auto Cache Invalidation | ✅ Functional |
+| Singleplayer Ingest | ✅ Functional |
 
 ## Requirements
 
