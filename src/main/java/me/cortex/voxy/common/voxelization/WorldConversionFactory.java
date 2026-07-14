@@ -136,12 +136,12 @@ public class WorldConversionFactory {
         var biomes = cache.biomeCache;
         var data = section.section;
 
-        var vp = blockContainer.data.palette();
+        var vp = blockContainer.data.palette;
         var pc = cache.getPaletteCache(vp.getSize());
         GlobalPalette<BlockState> bps = null;
 
         int pcc = 0;
-        if (blockContainer.data.palette() instanceof GlobalPalette<BlockState> _bps) {
+        if (blockContainer.data.palette instanceof GlobalPalette<BlockState> _bps) {
             bps = _bps;
             pcc = bps.getSize();
         } else {
@@ -161,7 +161,7 @@ public class WorldConversionFactory {
         }
 
         int nonZeroCnt = 0;
-        if (blockContainer.data.storage() instanceof SimpleBitStorage bStor) {
+        if (blockContainer.data.storage instanceof SimpleBitStorage bStor) {
             var bDat = bStor.getRaw();
             int iterPerLong = (64 / bStor.getBits()) - 1;
 
@@ -189,7 +189,7 @@ public class WorldConversionFactory {
                 data[i] = Mapper.composeMappingId(light, bId, biomes[Integer.compress(i, 0b1100_1100_1100)]);
             }
         } else {
-            if (!(blockContainer.data.storage() instanceof ZeroBitStorage)) {
+            if (!(blockContainer.data.storage instanceof ZeroBitStorage)) {
                 throw new IllegalStateException();
             }
             int bId = pc[0];

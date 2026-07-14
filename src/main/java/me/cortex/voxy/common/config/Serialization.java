@@ -93,7 +93,7 @@ public class Serialization {
         Map<Class<?>, GsonConfigSerialization<?>> serializers = new HashMap<>();
 
         Set<String> clazzs = new LinkedHashSet<>();
-        var modOpt = ModList.get().getModFileById("neovoxy");
+        var modOpt = ModList.get().getModFileById("voxy");
         if (modOpt != null) {
             var path = modOpt.getFile().getSecureJar().getRootPath();
             clazzs.addAll(collectAllClasses(path, BASE_SEARCH_PACKAGE));

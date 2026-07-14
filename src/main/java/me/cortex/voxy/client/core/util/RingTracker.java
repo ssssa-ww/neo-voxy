@@ -155,7 +155,7 @@ public class RingTracker {
         if (this.operations.isEmpty()) {
             return 0;
         }
-        var iter = this.operations.long2ByteEntrySet().iterator();
+        var iter = this.operations.long2ByteEntrySet().fastIterator();
         int i = 0;
         while (iter.hasNext() && N--!=0) {
             var entry = iter.next();

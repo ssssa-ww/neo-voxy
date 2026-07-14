@@ -61,7 +61,7 @@ public class MixinRenderSectionManager {
                 var chunk = cccm.voxy$cheekyGetChunk(x, z);
                 if (chunk != null) {
                     VoxelIngestService.tryAutoIngestChunk(chunk);
-                    me.cortex.voxy.common.Logger.info("[Client] Chunk " + x + "," + z + " removed");
+                    me.cortex.voxy.common.Logger.debug("[Client] Chunk " + x + "," + z + " removed");
                 }
             }
         }
@@ -77,10 +77,10 @@ public class MixinRenderSectionManager {
                     boolean result = VoxelIngestService.tryAutoIngestChunk(chunk);
                     // Debug log for client-side ingestion
                     if (!result) {
-                        me.cortex.voxy.common.Logger.info(
+                        me.cortex.voxy.common.Logger.debug(
                                 "[Client] Chunk " + x + "," + z + " ingest returned false (likely missing lighting)");
                     } else {
-                        me.cortex.voxy.common.Logger.info("[Client] Chunk " + x + "," + z + " added and ingested");
+                        me.cortex.voxy.common.Logger.debug("[Client] Chunk " + x + "," + z + " added and ingested");
                     }
                 }
             }

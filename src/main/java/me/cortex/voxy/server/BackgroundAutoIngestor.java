@@ -31,7 +31,6 @@ import net.minecraft.world.level.chunk.storage.RegionFileVersion;
 import net.minecraft.world.level.storage.LevelResource;
 import org.lwjgl.system.MemoryUtil;
 
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.file.*;
@@ -79,7 +78,6 @@ public class BackgroundAutoIngestor {
 
     // Queue for chunks ready to ingest
     private final ConcurrentLinkedQueue<ChunkData> readyQueue = new ConcurrentLinkedQueue<>();
-    private final LongOpenHashSet existingSections = new LongOpenHashSet();
 
     // Codec for NBT parsing
     private final Codec<PalettedContainer<BlockState>> blockStateCodec;
@@ -90,7 +88,6 @@ public class BackgroundAutoIngestor {
     private String lastRegionFile = null;
     private int lastChunkIdx = 0;
     private long scanStartTime = 0;
-    private long lastScanCompletionTime = 0;
 
     // Timing
     private long lastLogTime = 0;
@@ -165,10 +162,10 @@ public class BackgroundAutoIngestor {
      * Main scan loop - runs on worker thread.
      */
     private void scanRegions() {
-        WorldEngine engine = null;
         try {
             // Wait for world engine to become available (up to 60 seconds)
             // On singleplayer, engine is created when player joins
+            WorldEngine engine = null;
             for (int i = 0; i < 600 && isRunning.get(); i++) {
                 engine = getWorldEngine();
                 if (engine != null)
@@ -182,21 +179,7 @@ public class BackgroundAutoIngestor {
                 return;
             }
 
-            // Acquire engine reference to prevent idle shutdown
-            engine.acquireRef();
-
             Logger.info("[AutoIngest] WorldEngine available, starting region scan");
-
-            // Pre-populate existing section keys from database to avoid heavy RocksDB queries
-            try {
-                synchronized (existingSections) {
-                    existingSections.clear();
-                    engine.storage.iterateStoredSectionPositions(existingSections::add);
-                }
-                Logger.info("[AutoIngest] Pre-loaded " + existingSections.size() + " existing section keys from database");
-            } catch (Exception e) {
-                Logger.error("[AutoIngest] Failed to load existing section keys from database", e);
-            }
 
             File[] regionFiles = regionDir.toFile().listFiles((dir, name) -> name.matches("r\\.-?\\d+\\.-?\\d+\\.mca"));
 
@@ -219,23 +202,17 @@ public class BackgroundAutoIngestor {
                     }
                 }
             }
-            processedRegions.set(0);
+            processedRegions.set(startIdx);
 
-            Logger.info("Found " + regionFiles.length + " region files. Last scan completed at: " + (lastScanCompletionTime > 0 ? new java.util.Date(lastScanCompletionTime) : "never") + ". Resume index: " + startIdx);
+            Logger.info("Found " + regionFiles.length + " region files, starting from " +
+                    (startIdx > 0 ? regionFiles[startIdx].getName() : "beginning"));
 
-            for (int i = 0; i < regionFiles.length && isRunning.get(); i++) {
+            for (int i = startIdx; i < regionFiles.length && isRunning.get(); i++) {
                 while (isPaused.get() && isRunning.get()) {
                     Thread.sleep(100);
                 }
                 if (!isRunning.get())
                     break;
-
-                File f = regionFiles[i];
-                // Skip files before the resume point, or files that haven't been modified since the last successful scan completion
-                if (i < startIdx || (f.lastModified() <= lastScanCompletionTime - 10000 && !f.getName().equals(lastRegionFile))) {
-                    processedRegions.incrementAndGet();
-                    continue;
-                }
 
                 // Defer to Chunky if it's actively generating
                 // Chunky is the primary LOD propagation method when present
@@ -244,21 +221,18 @@ public class BackgroundAutoIngestor {
                 }
 
                 // Throttle if queue is too full
-                while (readyQueue.size() > 128 && isRunning.get()) {
+                while (readyQueue.size() > 1000 && isRunning.get()) {
                     Thread.sleep(10);
                 }
 
-                processRegionFile(f);
+                processRegionFile(regionFiles[i]);
                 processedRegions.incrementAndGet();
-                lastRegionFile = f.getName();
+                lastRegionFile = regionFiles[i].getName();
                 lastChunkIdx = 0;
                 saveState();
             }
 
             if (isRunning.get()) {
-                lastScanCompletionTime = System.currentTimeMillis();
-                lastRegionFile = null;
-                lastChunkIdx = 0;
                 Logger.info("Background auto-ingest complete for " + level.dimension().location() +
                         ": " + totalChunksProcessed.get() + " chunks processed, " +
                         chunksSkipped.get() + " skipped");
@@ -269,16 +243,8 @@ public class BackgroundAutoIngestor {
         } finally {
             isRunning.set(false);
             saveState();
-            synchronized (existingSections) {
-                existingSections.clear();
-                existingSections.trim();
-            }
-            if (engine != null) {
-                engine.releaseRef();
-            }
         }
     }
-
 
     /**
      * Process a single region file.
@@ -297,16 +263,6 @@ public class BackgroundAutoIngestor {
             for (int idx = startChunk; idx < 1024 && isRunning.get(); idx++) {
                 if (!isRunning.get())
                     break;
-
-                // Throttle if queue is too full to prevent high heap memory usage
-                while (readyQueue.size() > 128 && isRunning.get()) {
-                    try {
-                        Thread.sleep(10);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
 
                 int sectorMeta = Integer.reverseBytes(MemoryUtil.memGetInt(buffer.address + idx * 4));
                 if (sectorMeta == 0)
@@ -383,21 +339,17 @@ public class BackgroundAutoIngestor {
                 }
 
                 // Check if LOD already exists (deduplication)
-                long key = WorldEngine.getWorldSectionId(0, x >> 1, y >> 1, z >> 1);
-                boolean exists;
-                synchronized (existingSections) {
-                    exists = existingSections.contains(key);
-                }
-                if (exists) {
-                    continue;
+                if (engine != null) {
+                    var existingSection = engine.acquireIfExists(0, x, y, z);
+                    if (existingSection != null) {
+                        existingSection.release();
+                        continue;
+                    }
                 }
 
                 ChunkData chunkData = parseSection(x, y, z, section);
                 if (chunkData != null) {
                     readyQueue.add(chunkData);
-                    synchronized (existingSections) {
-                        existingSections.add(key);
-                    }
                 }
             }
         }
@@ -507,9 +459,6 @@ public class BackgroundAutoIngestor {
 
             WorldConversionFactory.mipSection(converted, engine.getMapper());
             WorldUpdater.insertUpdate(engine, converted);
-            synchronized (existingSections) {
-                existingSections.add(WorldEngine.getWorldSectionId(0, chunk.x >> 1, chunk.y >> 1, chunk.z >> 1));
-            }
         } catch (Exception e) {
             Logger.warn("[AutoIngest] Failed to ingest chunk [" + chunk.x + ", " + chunk.y + ", " + chunk.z + "]: "
                     + e.getMessage());
@@ -529,9 +478,7 @@ public class BackgroundAutoIngestor {
             if (state != null) {
                 lastRegionFile = state.lastRegion;
                 lastChunkIdx = state.lastChunkIdx;
-                lastScanCompletionTime = state.lastScanCompletionTime;
-                Logger.info("Loaded auto-ingest state: last completion = " + (lastScanCompletionTime > 0 ? new java.util.Date(lastScanCompletionTime) : "never") +
-                        (lastRegionFile != null ? ", resuming from " + lastRegionFile + " chunk " + lastChunkIdx : ""));
+                Logger.info("Resuming auto-ingest from " + lastRegionFile + " chunk " + lastChunkIdx);
             }
         } catch (Exception e) {
             Logger.warn("Failed to load auto-ingest state: " + e.getMessage());
@@ -548,7 +495,6 @@ public class BackgroundAutoIngestor {
             state.lastChunkIdx = lastChunkIdx;
             state.timestamp = System.currentTimeMillis();
             state.totalProcessed = totalChunksProcessed.get();
-            state.lastScanCompletionTime = lastScanCompletionTime;
 
             Files.writeString(stateFile, GSON.toJson(state));
         } catch (Exception e) {
@@ -565,10 +511,6 @@ public class BackgroundAutoIngestor {
         fileReader.shutdownNow();
         saveState();
         readyQueue.clear();
-        synchronized (existingSections) {
-            existingSections.clear();
-            existingSections.trim();
-        }
     }
 
     /**
@@ -578,12 +520,6 @@ public class BackgroundAutoIngestor {
     public void onChunkSaved(net.minecraft.world.level.chunk.LevelChunk chunk) {
         if (!enabled)
             return;
-
-        // Safety cap: if the queue is already full, discard to prevent memory bloat/OOM.
-        // Skips will eventually be processed by the background region scanner or next load.
-        if (readyQueue.size() > 256) {
-            return;
-        }
 
         try {
             int chunkX = chunk.getPos().x;
@@ -610,8 +546,9 @@ public class BackgroundAutoIngestor {
                 int sectionY = chunk.getMinSection() + sectionIndex;
 
                 // Check if LOD already exists for this section (deduplication)
-                long key = WorldEngine.getWorldSectionId(0, chunkX >> 1, sectionY >> 1, chunkZ >> 1);
-                if (existingSections.contains(key)) {
+                var existingSection = engine.acquireIfExists(0, chunkX, sectionY, chunkZ);
+                if (existingSection != null) {
+                    existingSection.release();
                     continue; // Already has LOD, skip
                 }
 
@@ -652,7 +589,6 @@ public class BackgroundAutoIngestor {
                 ChunkData chunkData = new ChunkData(chunkX, sectionY, chunkZ, blockStates, biomes, blockLight,
                         skyLight);
                 readyQueue.add(chunkData);
-                existingSections.add(key);
                 sectionsQueued++;
             }
 
@@ -690,19 +626,14 @@ public class BackgroundAutoIngestor {
      * Get or cache the world engine for this world.
      */
     private WorldEngine getWorldEngine() {
-        if (cachedEngine != null) {
-            if (cachedEngine.isLive()) {
-                return cachedEngine;
-            } else {
-                cachedEngine = null;
-            }
-        }
+        if (cachedEngine != null)
+            return cachedEngine;
 
         var instance = VoxyCommon.getInstance();
         if (instance == null)
             return null;
 
-        cachedEngine = instance.getOrCreate(worldId);
+        cachedEngine = instance.getNullable(worldId);
         return cachedEngine;
     }
 
@@ -739,7 +670,6 @@ public class BackgroundAutoIngestor {
         int lastChunkIdx;
         long timestamp;
         int totalProcessed;
-        long lastScanCompletionTime;
     }
 
     private record DefaultBiomeProvider(Holder<Biome> defaultBiome) implements PalettedContainerRO<Holder<Biome>> {

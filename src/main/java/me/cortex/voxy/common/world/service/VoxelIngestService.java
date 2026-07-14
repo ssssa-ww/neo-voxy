@@ -213,7 +213,6 @@ public class VoxelIngestService {
     }
 
     public static boolean rawIngest(WorldEngine engine, LevelChunkSection section, int x, int y, int z, DataLayer bl, DataLayer sl) {
-        if (!engine.isLive()) return false;
         if (!shouldIngestSection(section, x, y, z)) return false;
         if (engine.instanceIn == null) return false;
         if (!engine.instanceIn.isIngestEnabled(null)) return false;//TODO: dont pass in null

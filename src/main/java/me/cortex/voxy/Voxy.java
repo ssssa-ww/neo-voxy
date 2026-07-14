@@ -20,7 +20,7 @@ import net.neoforged.api.distmarker.Dist;
 
 @Mod(Voxy.MODID)
 public class Voxy {
-    public static final String MODID = "neovoxy";
+    public static final String MODID = "voxy";
 
     public Voxy(IEventBus modEventBus, ModContainer modContainer) {
         // Init common environment

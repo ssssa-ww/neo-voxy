@@ -14,13 +14,10 @@ public class ShaderLoader {
      */
     private static String loadShaderSource(String id) {
         String ns = id.split(":")[0];
-        if ("voxy".equals(ns)) {
-            ns = "neovoxy";
-        }
         String path = id.split(":")[1];
-        String resourcePath = "assets/" + ns + "/shaders/" + path;
+        String resourcePath = "/assets/" + ns + "/shaders/" + path;
 
-        try (InputStream stream = ShaderLoader.class.getClassLoader().getResourceAsStream(resourcePath)) {
+        try (InputStream stream = ShaderLoader.class.getResourceAsStream(resourcePath)) {
             if (stream == null) {
                 throw new RuntimeException("Shader not found: " + resourcePath);
             }

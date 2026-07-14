@@ -149,7 +149,7 @@ public class VoxyClientInstance extends VoxyInstance {
         Path basePath = Minecraft.getInstance().gameDirectory.toPath().resolve(".voxy").resolve("saves");
         var iserver = Minecraft.getInstance().getSingleplayerServer();
         if (iserver != null) {
-            basePath = iserver.getWorldPath(LevelResource.ROOT).resolve("neovoxy");
+            basePath = iserver.getWorldPath(LevelResource.ROOT).resolve("voxy");
         } else {
             var netHandle = Minecraft.getInstance().gameMode;
             if (netHandle == null) {

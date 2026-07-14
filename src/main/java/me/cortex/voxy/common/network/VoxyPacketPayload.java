@@ -25,7 +25,7 @@ import org.jetbrains.annotations.NotNull;
  */
 public record VoxyPacketPayload(byte messageType, byte[] data) implements CustomPacketPayload {
 
-    public static final ResourceLocation ID = ResourceLocation.fromNamespaceAndPath("neovoxy", "lod_sync");
+    public static final ResourceLocation ID = ResourceLocation.fromNamespaceAndPath("voxy", "lod_sync");
     public static final Type<VoxyPacketPayload> TYPE = new Type<>(ID);
 
     // Message type constants
@@ -38,8 +38,6 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
     public static final byte MSG_SYNC_REQUEST = 6; // Client→Server: request LOD sync
     public static final byte MSG_SYNC_COMPLETE = 7; // Server→Client: signals streaming complete
     public static final byte MSG_REQUEST_SECTIONS = 8; // Client→Server: request specific sections (pull model)
-    public static final byte MSG_SYNC_PROGRESS = 9; // Server→Client: sync progress [totalSections:4][matchedSections:4][sentSections:4]
-    public static final byte MSG_LOD_BATCH = 10; // Server→Client: batch of LOD sections for a single area column
 
     @NotNull
     @Override
@@ -94,10 +92,10 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
     }
 
     /**
-     * Helper to create a sync request payload with the client's cache bloom filter.
+     * Helper to create a sync request payload.
      */
-    public static VoxyPacketPayload syncRequest(BloomFilter bloomFilter) {
-        return new VoxyPacketPayload(MSG_SYNC_REQUEST, bloomFilter != null ? bloomFilter.toBytes() : new byte[0]);
+    public static VoxyPacketPayload syncRequest() {
+        return new VoxyPacketPayload(MSG_SYNC_REQUEST, new byte[0]);
     }
 
     /**
@@ -317,59 +315,5 @@ public record VoxyPacketPayload(byte messageType, byte[] data) implements Custom
         } catch (java.io.IOException e) {
             return new long[0];
         }
-    }
-
-    /**
-     * Helper to create a sync progress payload.
-     */
-    public static VoxyPacketPayload syncProgress(int totalSections, int matchedSections, int sentSections) {
-        byte[] data = new byte[12];
-        data[0] = (byte) (totalSections >> 24);
-        data[1] = (byte) (totalSections >> 16);
-        data[2] = (byte) (totalSections >> 8);
-        data[3] = (byte) totalSections;
-
-        data[4] = (byte) (matchedSections >> 24);
-        data[5] = (byte) (matchedSections >> 16);
-        data[6] = (byte) (matchedSections >> 8);
-        data[7] = (byte) matchedSections;
-
-        data[8] = (byte) (sentSections >> 24);
-        data[9] = (byte) (sentSections >> 16);
-        data[10] = (byte) (sentSections >> 8);
-        data[11] = (byte) sentSections;
-
-        return new VoxyPacketPayload(MSG_SYNC_PROGRESS, data);
-    }
-
-    /**
-     * Parse sync progress values from a progress payload.
-     */
-    public int[] parseSyncProgress() {
-        if (messageType != MSG_SYNC_PROGRESS || data.length < 12) {
-            return new int[]{0, 0, 0};
-        }
-        int total = ((data[0] & 0xFF) << 24) | ((data[1] & 0xFF) << 16) | ((data[2] & 0xFF) << 8) | (data[3] & 0xFF);
-        int matched = ((data[4] & 0xFF) << 24) | ((data[5] & 0xFF) << 16) | ((data[6] & 0xFF) << 8) | (data[7] & 0xFF);
-        int sent = ((data[8] & 0xFF) << 24) | ((data[9] & 0xFF) << 16) | ((data[10] & 0xFF) << 8) | (data[11] & 0xFF);
-        return new int[]{total, matched, sent};
-    }
-
-    /**
-     * Helper to create a LOD batch payload.
-     */
-    public static VoxyPacketPayload lodBatch(java.util.List<Long> keys, java.util.List<byte[]> sectionsData) {
-        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-        java.io.DataOutputStream out = new java.io.DataOutputStream(baos);
-        try {
-            out.writeByte(keys.size());
-            for (int i = 0; i < keys.size(); i++) {
-                out.writeLong(keys.get(i));
-                byte[] sData = sectionsData.get(i);
-                out.writeInt(sData.length);
-                out.write(sData);
-            }
-        } catch (java.io.IOException ignored) {}
-        return new VoxyPacketPayload(MSG_LOD_BATCH, baos.toByteArray());
     }
 }

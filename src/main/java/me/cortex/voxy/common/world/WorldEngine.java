@@ -65,18 +65,8 @@ public class WorldEngine {
         this.instanceIn = instance;
 
         int cacheSize = 1024;
-        if (me.cortex.voxy.commonImpl.VoxyCommon.IS_DEDICATED_SERVER) {
-            cacheSize = 256; // Smaller LRU cache on dedicated server
-        } else if (Runtime.getRuntime().maxMemory() >= (1L << 32) - (200L << 20)) {
+        if (Runtime.getRuntime().maxMemory() >= (1L << 32) - (200L << 20)) {
             cacheSize = 2048;
-        }
-        var override = System.getProperty("voxy.server.secondaryCacheSize", "");
-        if (!override.isEmpty()) {
-            try {
-                cacheSize = Integer.parseInt(override);
-            } catch (NumberFormatException e) {
-                // Ignore
-            }
         }
 
         this.storage = storage;
@@ -256,12 +246,6 @@ public class WorldEngine {
         section.setNotDirty();
         if (this.saveCallback != null) {
             this.saveCallback.save(this, section);
-        }
-    }
-
-    public void saveDirtySections() {
-        if (this.isLive) {
-            this.sectionTracker.saveDirtySections();
         }
     }
 }

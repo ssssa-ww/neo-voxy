@@ -8,7 +8,7 @@ import me.cortex.voxy.common.world.service.LodStreamingService;
 import me.cortex.voxy.commonImpl.VoxyCommon;
 import me.cortex.voxy.commonImpl.WorldIdentifier;
 import me.cortex.voxy.server.integration.ChunkyIntegration;
-
+import me.cortex.voxy.server.integration.DeferredChunkQueue;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -22,7 +22,6 @@ import net.neoforged.neoforge.event.level.LevelEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
-import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -75,13 +74,16 @@ public class VoxyServer {
 
         // Initialize Chunky integration if present
         if (ChunkyIntegration.isChunkyLoaded()) {
-            ChunkyIntegration.registerCompletionListener(VoxyServer::onChunkyComplete);
+            DeferredChunkQueue.initialize(currentServer);
             Logger.info("Chunky integration enabled - will defer LOD processing during generation");
         }
 
-        // Start background auto-ingestors for all levels
-        for (ServerLevel level : currentServer.getAllLevels()) {
-            startAutoIngestor(level);
+        // Start background auto-ingestors for all levels (dedicated server only)
+        // In singleplayer, the client handles LOD ingestion directly
+        if (VoxyCommon.IS_DEDICATED_SERVER) {
+            for (ServerLevel level : currentServer.getAllLevels()) {
+                startAutoIngestor(level);
+            }
         }
     }
 
@@ -152,6 +154,7 @@ public class VoxyServer {
 
         // Check if Chunky is actively generating - defer processing if so
         if (ChunkyIntegration.shouldDeferProcessing()) {
+            DeferredChunkQueue.enqueue(worldId, levelChunk.getPos().x, levelChunk.getPos().z);
             return;
         }
 
@@ -194,11 +197,10 @@ public class VoxyServer {
                 if (engine != null) {
                     try {
                         // Check if Chunky is actively generating - defer if so
-                        if (ChunkyIntegration.shouldDeferProcessing()) {
-                            return;
+                        if (!ChunkyIntegration.shouldDeferProcessing()) {
+                            instance.getIngestService().enqueueIngest(engine, levelChunk);
+                            return; // Success - no need to use AutoIngestor
                         }
-                        instance.getIngestService().enqueueIngest(engine, levelChunk);
-                        return; // Success - no need to use AutoIngestor
                     } catch (Exception e) {
                         // Fall through to auto-ingestor
                     }
@@ -210,9 +212,7 @@ public class VoxyServer {
         var ingestor = autoIngestors.get(serverLevel);
         if (ingestor != null) {
             try {
-                if (!ChunkyIntegration.shouldDeferProcessing()) {
-                    ingestor.onChunkSaved(levelChunk);
-                }
+                ingestor.onChunkSaved(levelChunk);
             } catch (Exception e) {
                 Logger.warn("Auto-ingestor failed to process saved chunk at " + levelChunk.getPos() + ": "
                         + e.getMessage());
@@ -225,7 +225,7 @@ public class VoxyServer {
      */
     private static void handleClientMessage(ServerPlayer player, VoxyPacketPayload payload) {
         switch (payload.messageType()) {
-            case VoxyPacketPayload.MSG_SYNC_REQUEST -> handleSyncRequest(player, payload);
+            case VoxyPacketPayload.MSG_SYNC_REQUEST -> handleSyncRequest(player);
             case VoxyPacketPayload.MSG_CACHE_RESPONSE -> handleCacheResponse(player, payload);
             case VoxyPacketPayload.MSG_RATE_UPDATE -> handleRateUpdate(player, payload);
             case VoxyPacketPayload.MSG_REQUEST_SECTIONS -> handleSectionRequest(player, payload);
@@ -235,7 +235,7 @@ public class VoxyServer {
     /**
      * Handle sync request from a player.
      */
-    private static void handleSyncRequest(ServerPlayer player, VoxyPacketPayload payload) {
+    private static void handleSyncRequest(ServerPlayer player) {
         Logger.info("Received sync request from " + player.getName().getString());
 
         ServerLevel level = player.serverLevel();
@@ -273,7 +273,7 @@ public class VoxyServer {
                 });
 
         // Actually start the sync for this player
-        service.startSyncForPlayer(player, payload);
+        service.startSyncForPlayer(player);
         Logger.info(
                 "LOD streaming started for " + player.getName().getString() + " in " + level.dimension().location());
     }
@@ -343,21 +343,6 @@ public class VoxyServer {
     }
 
     /**
-     * Handle level save events.
-     * Called when the server runs autosave or a save command.
-     */
-    @SubscribeEvent
-    public static void onLevelSave(LevelEvent.Save event) {
-        if (event.getLevel() instanceof ServerLevel serverLevel) {
-            var instance = VoxyCommon.getInstance();
-            if (instance != null) {
-                Logger.info("Level save event detected for " + serverLevel.dimension().location() + " - flushing Voxy database");
-                instance.flush();
-            }
-        }
-    }
-
-    /**
      * Shutdown all streaming services.
      * Called when the server stops.
      */
@@ -376,7 +361,8 @@ public class VoxyServer {
         }
         streamingServices.clear();
 
-
+        // Shutdown deferred chunk queue
+        DeferredChunkQueue.shutdown();
 
         // Shutdown all background auto-ingestors
         for (var ingestor : autoIngestors.values()) {
@@ -388,17 +374,14 @@ public class VoxyServer {
         }
         autoIngestors.clear();
 
-        currentServer = null;
-    }
-
-    @SubscribeEvent
-    public static void onServerStopped(ServerStoppedEvent event) {
         // Shutdown VoxyCommon instance (dedicated server only)
         // In singleplayer, the client handles the instance lifecycle
         if (VoxyCommon.IS_DEDICATED_SERVER && VoxyCommon.getInstance() != null) {
-            Logger.info("Shutting down VoxyServerInstance in ServerStoppedEvent");
+            Logger.info("Shutting down VoxyServerInstance");
             VoxyCommon.shutdownInstance();
         }
+
+        currentServer = null;
     }
 
     /**
@@ -407,27 +390,14 @@ public class VoxyServer {
     @SubscribeEvent
     public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            java.util.UUID playerId = player.getUUID();
-            for (var service : streamingServices.values()) {
-                service.onPlayerDisconnect(playerId);
+            var level = player.serverLevel();
+            var service = streamingServices.get(level);
+            if (service != null) {
+                service.onPlayerDisconnect(player.getUUID());
             }
-            VoxyNetworkHandler.removePlayer(playerId);
+            VoxyNetworkHandler.removePlayer(player.getUUID());
         }
     }
-
-    /**
-     * Handle player changed dimension to clean up streaming state in the old dimension.
-     */
-    @SubscribeEvent
-    public static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player) {
-            java.util.UUID playerId = player.getUUID();
-            for (var service : streamingServices.values()) {
-                service.onPlayerDisconnect(playerId);
-            }
-        }
-    }
-
 
     /**
      * Handle server tick for command processing.
@@ -437,16 +407,12 @@ public class VoxyServer {
         // Tick chunk processors for generate command
         VoxyServerCommands.tickProcessors();
 
-
+        // Tick deferred chunk queue
+        DeferredChunkQueue.tick();
 
         // Tick background auto-ingestors
         for (var ingestor : autoIngestors.values()) {
             ingestor.tick();
-        }
-
-        // Tick active streaming services
-        for (var service : getAllStreamingServices()) {
-            service.tick();
         }
     }
 
@@ -483,18 +449,7 @@ public class VoxyServer {
      */
     public static void broadcastSync(ServerLevel level) {
         for (ServerPlayer player : level.players()) {
-            handleSyncRequest(player, new VoxyPacketPayload(VoxyPacketPayload.MSG_SYNC_REQUEST, new byte[0]));
-        }
-    }
-
-    /**
-     * Called when Chunky completes generation.
-     * Restarts background auto-ingestors to scan and process newly generated chunks.
-     */
-    private static void onChunkyComplete() {
-        Logger.info("Chunky generation completed, restarting auto-ingestors to scan and process newly generated chunks");
-        for (var ingestor : autoIngestors.values()) {
-            ingestor.start();
+            handleSyncRequest(player);
         }
     }
 }

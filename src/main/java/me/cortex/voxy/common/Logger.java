@@ -13,7 +13,7 @@ public class Logger {
     public static boolean INSERT_CLASS = true;
     public static boolean SHUTUP = false;
     public static boolean SHUTUP_INFO = false;
-    private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger("NeoVoxy");
+    private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger("Voxy");
 
 
     private static String callClsName() {
@@ -91,6 +91,19 @@ public class Logger {
             }
         }
         LOGGER.info((INSERT_CLASS?("["+callClsName()+"]: "):"") + Stream.of(args).map(Logger::objToString).collect(Collectors.joining(" ")), throwable);
+    }
+
+    public static void debug(Object... args) {
+        if (SHUTUP) {
+            return;
+        }
+        Throwable throwable = null;
+        for (var i : args) {
+            if (i instanceof Throwable) {
+                throwable = (Throwable) i;
+            }
+        }
+        LOGGER.debug((INSERT_CLASS?("["+callClsName()+"]: "):"") + Stream.of(args).map(Logger::objToString).collect(Collectors.joining(" ")), throwable);
     }
 
     private static String objToString(Object obj) {

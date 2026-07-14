@@ -18,11 +18,11 @@ import java.util.function.IntSupplier;
  */
 public class SharedBandwidthLimit {
 
-    /** Default global bandwidth limit: 1 GB/s = 1024000 KB/s */
-    public static final int DEFAULT_GLOBAL_LIMIT_KBPS = 1024000;
+    /** Default global bandwidth limit: 10 MB/s = 10240 KB/s */
+    public static final int DEFAULT_GLOBAL_LIMIT_KBPS = 10240;
 
-    /** Default per-player bandwidth limit: 100 MB/s = 102400 KB/s */
-    public static final int DEFAULT_PLAYER_LIMIT_KBPS = 102400;
+    /** Default per-player bandwidth limit: 1 MB/s = 1024 KB/s */
+    public static final int DEFAULT_PLAYER_LIMIT_KBPS = 1024;
 
     private final Set<Object> activeSenders = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final IntSupplier globalLimitSupplier;

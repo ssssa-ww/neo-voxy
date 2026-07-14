@@ -20,14 +20,14 @@ public class ClientCongestionControl {
     /** Rate adjustment interval in milliseconds */
     private static final long INTERVAL_MS = 1000;
 
-    /** Additive increase amount (1 MB/s per interval when successful) */
-    private static final double ADDITIVE_INCREASE = 1_000_000;
+    /** Additive increase amount (50 KB/s per interval when successful) */
+    private static final double ADDITIVE_INCREASE = 50_000;
 
     /** Minimum rate to maintain even under heavy congestion */
-    private static final double MIN_RATE = 100_000; // 100 KB/s
+    private static final double MIN_RATE = 1000; // 1 KB/s
 
     private final AtomicLong bytesReceived = new AtomicLong(0);
-    private double desiredRate = 5_000_000; // Start at 5 MB/s
+    private double desiredRate = ADDITIVE_INCREASE;
     private long lastAdjustTime = System.currentTimeMillis();
     private final Runnable rateUpdateHandler;
 
@@ -50,7 +50,7 @@ public class ClientCongestionControl {
      * Reset to initial state (e.g., on connect).
      */
     public void reset() {
-        desiredRate = 5_000_000;
+        desiredRate = ADDITIVE_INCREASE;
         lastAdjustTime = System.currentTimeMillis();
         bytesReceived.set(0);
     }

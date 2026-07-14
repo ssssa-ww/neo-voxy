@@ -26,7 +26,6 @@ public abstract class MixinStandardMacros {
             Operation<ImmutableList<StringPair>> original) {
         if (VoxyConfig.CONFIG.isRenderingEnabled() && IrisUtil.SHADER_SUPPORT) {
             define((List<StringPair>) list, "VOXY");
-            define((List<StringPair>) list, "NEOVOXY");
             if (IrisShaderPatch.IMPERSONATE_DISTANT_HORIZONS) {
                 define((List<StringPair>) list, "DISTANT_HORIZONS");
             }

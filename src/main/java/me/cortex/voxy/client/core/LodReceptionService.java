@@ -10,16 +10,13 @@ import me.cortex.voxy.common.world.SectionSerializer;
 import me.cortex.voxy.common.world.WorldEngine;
 import me.cortex.voxy.common.world.WorldSection;
 import me.cortex.voxy.common.world.other.Mapper;
+
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.neoforge.client.event.RenderGuiEvent;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.Minecraft;
 
 /**
  * Client-side service for receiving and processing streamed LOD data.
@@ -63,39 +60,11 @@ public class LodReceptionService implements AutoCloseable {
     /** Sections pending processing because models aren't ready yet */
     private final ConcurrentHashMap<Long, byte[]> pendingSections = new ConcurrentHashMap<>();
 
-    // Prepared section class for offloaded remapping and deserialization
-    private static class PreparedSection {
-        final long key;
-        final long[] remappedVoxelData;
-        final byte nonEmptyChildren;
-
-        PreparedSection(long key, long[] remappedVoxelData, byte nonEmptyChildren) {
-            this.key = key;
-            this.remappedVoxelData = remappedVoxelData;
-            this.nonEmptyChildren = nonEmptyChildren;
-        }
-    }
-
-    private final java.util.concurrent.ConcurrentLinkedQueue<PreparedSection> preparedSections = new java.util.concurrent.ConcurrentLinkedQueue<>();
-    private final ExecutorService ingestionExecutor;
-    private final java.util.concurrent.atomic.AtomicBoolean ingestionScheduled = new java.util.concurrent.atomic.AtomicBoolean(false);
-
     /** Whether the mapper has been synced (required for processing) */
     private volatile boolean mapperReady = false;
 
     /** Whether we've already requested sync */
     private volatile boolean syncRequested = false;
-
-    /** Whether local cache preloading is completed */
-    private final AtomicBoolean preloadingCompleted = new AtomicBoolean(false);
-
-    // Progress bar tracking
-    private volatile int totalSections = 0;
-    private volatile int matchedSections = 0;
-    private volatile int serverSentSections = 0;
-    private volatile boolean syncInProgress = false;
-    private int completeAnimationTicks = 0;
-    private boolean hasShownSyncProgress = false;
 
     public LodReceptionService(WorldEngine worldEngine, Mapper clientMapper,
             me.cortex.voxy.client.core.model.ModelBakerySubsystem modelBakery) {
@@ -104,29 +73,10 @@ public class LodReceptionService implements AutoCloseable {
         this.modelBakery = modelBakery;
         this.congestionControl = new ClientCongestionControl(this::onRateUpdate);
 
-        int coreCount = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
-        this.processingExecutor = Executors.newFixedThreadPool(coreCount, r -> {
+        this.processingExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "VoxyLodReception");
             t.setDaemon(true);
             return t;
-        });
-
-        this.ingestionExecutor = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "VoxyLodIngestion");
-            t.setDaemon(true);
-            return t;
-        });
-
-        // Pre-populate receivedSections from disk database asynchronously to prevent re-transfer on rejoin
-        this.processingExecutor.submit(() -> {
-            try {
-                this.worldEngine.storage.iterateStoredSectionPositions(this.receivedSections::add);
-                Logger.info("Pre-loaded " + this.receivedSections.size() + " cached section positions from local storage");
-            } catch (Exception e) {
-                Logger.error("Failed to load cached section positions: " + e.getMessage());
-            } finally {
-                this.preloadingCompleted.set(true);
-            }
         });
 
         // Register client message handler
@@ -144,28 +94,15 @@ public class LodReceptionService implements AutoCloseable {
             return;
         }
 
-        if (completeAnimationTicks > 0) {
-            completeAnimationTicks--;
-        }
-
         if (!VoxyNetworkHandler.shouldEnableStreaming()) {
             return;
         }
 
-        // Request sync from server if not done yet, but wait until local cache preloading is complete
-        if (!syncRequested && preloadingCompleted.get()) {
+        // Request sync from server if not done yet (to get mapper)
+        if (!syncRequested) {
             syncRequested = true;
-            syncInProgress = true;
-            hasShownSyncProgress = false;
-            
-            // Build bloom filter of sections we already have
-            BloomFilter filter = BloomFilter.forExpectedElements(Math.max(100, receivedSections.size()));
-            for (Long key : receivedSections) {
-                filter.add(key);
-            }
-            
-            Logger.info("Requesting LOD sync for server-driven streaming with " + receivedSections.size() + " cached sections");
-            VoxyNetworkHandler.sendToServer(VoxyPacketPayload.syncRequest(filter));
+            Logger.info("Requesting LOD sync for server-driven streaming");
+            VoxyNetworkHandler.sendToServer(VoxyPacketPayload.syncRequest());
         }
 
         // Process pending sections whose models are now available
@@ -184,8 +121,6 @@ public class LodReceptionService implements AutoCloseable {
             case VoxyPacketPayload.MSG_LOD_CHUNK -> handleChunk(payload);
             case VoxyPacketPayload.MSG_SYNC_COMPLETE -> handleSyncComplete(payload);
             case VoxyPacketPayload.MSG_CACHE_QUERY -> handleCacheQuery(payload);
-            case VoxyPacketPayload.MSG_SYNC_PROGRESS -> handleSyncProgress(payload);
-            case VoxyPacketPayload.MSG_LOD_BATCH -> handleBatch(payload);
         }
 
         // Update congestion control
@@ -237,71 +172,21 @@ public class LodReceptionService implements AutoCloseable {
         if (isLast) {
             // Complete! Process the section
             reassemblyBuffers.remove(sectionId);
+            sectionsReceived.incrementAndGet();
 
             byte[] completeData = buffer.assemble();
-            if (completeData != null && completeData.length > 0) {
-                byte type = completeData[0];
-                byte[] actualData = new byte[completeData.length - 1];
-                System.arraycopy(completeData, 1, actualData, 0, actualData.length);
-
-                if (type == 1) {
-                    processingExecutor.submit(() -> handleBatchData(actualData));
-                } else {
-                    sectionsReceived.incrementAndGet();
-                    processingExecutor.submit(() -> processSection(actualData));
-                }
+            if (completeData != null) {
+                processingExecutor.submit(() -> processSection(completeData));
             }
         }
     }
 
     /**
-     * Handle batched sections directly.
+     * Handle sync complete signal.
      */
-    private void handleBatch(VoxyPacketPayload payload) {
-        processingExecutor.submit(() -> handleBatchData(payload.data()));
-    }
-
-    /**
-     * Parse and process batched column sections data.
-     */
-    private void handleBatchData(byte[] batchData) {
-        try {
-            java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(batchData));
-            int sectionCount = in.readByte() & 0xFF;
-
-            // Increment the counter of received sections by the batch size
-            sectionsReceived.addAndGet(sectionCount);
-
-            for (int i = 0; i < sectionCount; i++) {
-                long key = in.readLong(); // Read key
-                int length = in.readInt();
-                byte[] sectionData = new byte[length];
-                in.readFully(sectionData);
-
-                // Submit to multi-threaded executor
-                processingExecutor.submit(() -> processSection(sectionData));
-            }
-        } catch (java.io.IOException e) {
-            Logger.error("Failed to parse LOD batch data: " + e.getMessage());
-        }
-    }
-
     private void handleSyncComplete(VoxyPacketPayload payload) {
         Logger.info("LOD sync complete! Received: " + sectionsReceived.get() +
                 ", Applied: " + sectionsApplied.get());
-        syncInProgress = false;
-        completeAnimationTicks = 60; // Show "Sync Complete" status for 3 seconds (60 ticks)
-    }
-
-    /**
-     * Handle sync progress update from server.
-     */
-    private void handleSyncProgress(VoxyPacketPayload payload) {
-        int[] stats = payload.parseSyncProgress();
-        this.totalSections = stats[0];
-        this.matchedSections = stats[1];
-        this.serverSentSections = stats[2];
-        this.syncInProgress = true;
     }
 
     /**
@@ -334,6 +219,7 @@ public class LodReceptionService implements AutoCloseable {
                 return;
             }
 
+            // Get or create section in world engine
             long key = sectionData.getKey();
 
             // Check if all required models for this section are available
@@ -346,68 +232,35 @@ public class LodReceptionService implements AutoCloseable {
             // Mark as received
             receivedSections.add(key);
 
-            if (sectionData.hasData() && idRemapper.isReady()) {
-                // Perform the heavy block ID remapping on the background thread!
-                long[] remapped = new long[sectionData.voxelData.length];
-                for (int i = 0; i < remapped.length; i++) {
-                    remapped[i] = idRemapper.remapVoxelId(sectionData.voxelData[i]);
-                }
-                preparedSections.offer(new PreparedSection(key, remapped, sectionData.nonEmptyChildren));
-            } else {
-                preparedSections.offer(new PreparedSection(key, null, sectionData.nonEmptyChildren));
+            WorldSection section = worldEngine.acquire(key);
+
+            if (section == null) {
+                Logger.warn("Failed to acquire section for key: " + key);
+                return;
             }
 
-            // Trigger single-threaded ingestion
-            triggerIngestion();
+            try {
+                // Apply data to section
+                if (sectionData.hasData() && idRemapper.isReady()) {
+                    applyVoxelData(section, sectionData.voxelData);
+                }
+
+                // Update non-empty children
+                section._unsafeSetNonEmptyChildren(sectionData.nonEmptyChildren);
+
+                // Mark dirty to trigger rendering - must use worldEngine.markDirty()
+                // to trigger the dirty callback that notifies the render system
+                worldEngine.markDirty(section);
+
+                sectionsApplied.incrementAndGet();
+
+            } finally {
+                section.release();
+            }
 
         } catch (Exception e) {
             Logger.error("Error processing section: " + e.getMessage());
             Logger.error(e);
-        }
-    }
-
-    private void triggerIngestion() {
-        if (ingestionScheduled.compareAndSet(false, true)) {
-            ingestionExecutor.submit(this::runIngestion);
-        }
-    }
-
-    private void runIngestion() {
-        try {
-            PreparedSection prepared;
-            while ((prepared = preparedSections.poll()) != null) {
-                applyPreparedSection(prepared);
-            }
-        } finally {
-            ingestionScheduled.set(false);
-            if (!preparedSections.isEmpty()) {
-                triggerIngestion();
-            }
-        }
-    }
-
-    private void applyPreparedSection(PreparedSection prepared) {
-        try {
-            WorldSection section = worldEngine.acquire(prepared.key);
-            if (section == null) {
-                return;
-            }
-            try {
-                if (prepared.remappedVoxelData != null) {
-                    long[] dataArray = section._unsafeGetRawDataArray();
-                    if (dataArray != null) {
-                        int count = Math.min(prepared.remappedVoxelData.length, dataArray.length);
-                        System.arraycopy(prepared.remappedVoxelData, 0, dataArray, 0, count);
-                    }
-                }
-                section._unsafeSetNonEmptyChildren(prepared.nonEmptyChildren);
-                worldEngine.markDirty(section, WorldEngine.DEFAULT_UPDATE_FLAGS, 0x3F);
-                sectionsApplied.incrementAndGet();
-            } finally {
-                section.release();
-            }
-        } catch (Exception e) {
-            Logger.error("Error ingesting prepared section: " + e.getMessage());
         }
     }
 
@@ -420,13 +273,11 @@ public class LodReceptionService implements AutoCloseable {
      */
     private boolean areModelsAvailable(long[] voxelData) {
         if (!idRemapper.isReady()) {
-            return true; // Cannot check model availability without a remapper
+            return false; // Cannot check model availability without a remapper
         }
         // Sample voxel data to check if models are ready
         // Only check a small sample to avoid performance issues
         it.unimi.dsi.fastutil.ints.IntOpenHashSet checkedBlocks = new it.unimi.dsi.fastutil.ints.IntOpenHashSet();
-
-        boolean allAvailable = true;
 
         // Sample every 64th voxel to keep it fast
         int step = Math.max(1, voxelData.length / 64);
@@ -438,7 +289,7 @@ public class LodReceptionService implements AutoCloseable {
                 if (!modelBakery.factory.hasModelForBlockId(clientBlockId)) {
                     // Request the model to be baked
                     modelBakery.requestBlockBake(clientBlockId);
-                    allAvailable = false;
+                    return false;
                 }
             }
             // Limit checking to first 16 unique blocks to keep it fast
@@ -446,7 +297,7 @@ public class LodReceptionService implements AutoCloseable {
                 break;
             }
         }
-        return allAvailable;
+        return true;
     }
 
     /**
@@ -454,55 +305,16 @@ public class LodReceptionService implements AutoCloseable {
      * ready.
      */
     private void processPendingSections() {
-        int checked = 0;
-        int maxChecksPerTick;
-        int speed = dev.xantha.vss.config.VSSClientConfig.CONFIG.lodPropagationSpeed;
-        if (speed == 1) {
-            maxChecksPerTick = 12;
-        } else if (speed == 2) {
-            maxChecksPerTick = 48;
-        } else if (speed == 3) {
-            maxChecksPerTick = 144;
-        } else if (speed == 4) {
-            maxChecksPerTick = 384;
-        } else if (speed == 5) {
-            maxChecksPerTick = 768;
-        } else {
-            maxChecksPerTick = 3072;
+        // Create a temporary list to avoid ConcurrentModificationException
+        // and to allow processing in batches
+        Set<Long> sectionsToProcess = ConcurrentHashMap.newKeySet();
+        for (Long key : pendingSections.keySet()) {
+            sectionsToProcess.add(key);
         }
-        
-        java.util.List<java.util.Map.Entry<Long, byte[]>> entries = new java.util.ArrayList<>(pendingSections.entrySet());
-        var player = Minecraft.getInstance().player;
-        final int playerChunkX = player != null ? player.getBlockX() >> 5 : 0;
-        final int playerChunkZ = player != null ? player.getBlockZ() >> 5 : 0;
-        
-        entries.sort((a, b) -> {
-            long keyA = a.getKey();
-            long keyB = b.getKey();
-            int lvlA = WorldEngine.getLevel(keyA);
-            int lvlB = WorldEngine.getLevel(keyB);
-            if (lvlA != lvlB) {
-                return Integer.compare(lvlB, lvlA); // Higher level (coarser) first
-            }
-            // Same level, closer to player first
-            int xA = WorldEngine.getX(keyA) << lvlA;
-            int zA = WorldEngine.getZ(keyA) << lvlA;
-            int xB = WorldEngine.getX(keyB) << lvlB;
-            int zB = WorldEngine.getZ(keyB) << lvlB;
-            
-            double distA = Math.pow(xA - playerChunkX, 2) + Math.pow(zA - playerChunkZ, 2);
-            double distB = Math.pow(xB - playerChunkX, 2) + Math.pow(zB - playerChunkZ, 2);
-            return Double.compare(distA, distB);
-        });
 
-        for (var entry : entries) {
-            if (checked >= maxChecksPerTick) {
-                break;
-            }
-            long key = entry.getKey();
-            byte[] data = entry.getValue();
+        for (Long key : sectionsToProcess) {
+            byte[] data = pendingSections.get(key);
             if (data != null) {
-                checked++;
                 try {
                     SectionSerializer.SectionData sectionData = SectionSerializer.deserialize(data);
                     if (sectionData != null && areModelsAvailable(sectionData.voxelData)) {
@@ -542,7 +354,8 @@ public class LodReceptionService implements AutoCloseable {
      * Called when congestion control adjusts rate.
      */
     private void onRateUpdate() {
-        congestionControl.sendRateUpdate();
+        // Optionally send rate update to server
+        // congestionControl.sendRateUpdate();
     }
 
     /**
@@ -555,11 +368,7 @@ public class LodReceptionService implements AutoCloseable {
         }
 
         Logger.info("Requesting LOD sync from server...");
-        BloomFilter filter = BloomFilter.forExpectedElements(Math.max(100, receivedSections.size()));
-        for (Long key : receivedSections) {
-            filter.add(key);
-        }
-        VoxyNetworkHandler.sendToServer(VoxyPacketPayload.syncRequest(filter));
+        VoxyNetworkHandler.sendToServer(VoxyPacketPayload.syncRequest());
     }
 
     /**
@@ -575,7 +384,6 @@ public class LodReceptionService implements AutoCloseable {
     public void close() {
         isActive.set(false);
         processingExecutor.shutdown();
-        ingestionExecutor.shutdown();
         reassemblyBuffers.clear();
         receivedSections.clear();
         idRemapper.reset();
@@ -607,5 +415,4 @@ public class LodReceptionService implements AutoCloseable {
             return result;
         }
     }
-
 }

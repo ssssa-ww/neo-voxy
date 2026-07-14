@@ -32,11 +32,7 @@ public class ChunkedLodSender implements AutoCloseable {
 
     private final ServerPlayer player;
     private final SharedBandwidthLimit sharedBandwidthLimit;
-    private volatile int perPlayerLimitKBps;
-
-    public void setLimitKBps(int limitKBps) {
-        this.perPlayerLimitKBps = limitKBps;
-    }
+    private final int perPlayerLimitKBps;
 
     private final ConcurrentLinkedQueue<PendingTransfer> transferQueue = new ConcurrentLinkedQueue<>();
     private final TimerTask tickTask;

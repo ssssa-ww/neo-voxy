@@ -53,7 +53,7 @@ public class VoxyCommands {
                                     .executes(VoxyCommands::importDistantHorizons)));
         }
 
-        return Commands.literal("neovoxy")
+        return Commands.literal("voxy")
                 .then(Commands.literal("reload")
                         .executes(VoxyCommands::reloadInstance))
                 .then(Commands.literal("sync")
