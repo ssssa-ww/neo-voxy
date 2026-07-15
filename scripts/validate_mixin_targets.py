@@ -258,11 +258,6 @@ class MixinValidator:
             return 0
 
 def main():
-    try:
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
-    except AttributeError:
-        pass
     mc_sources = Path('.reference/minecraft/1.21.1/decompiled')
     src_dir = Path('src/main/java')
 

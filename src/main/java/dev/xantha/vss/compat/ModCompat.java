@@ -10,7 +10,7 @@ public final class ModCompat {
     }
 
     public static void init() {
-        if (ModList.get().isLoaded("voxy") || classExists("me.cortex.voxy.common.world.service.VoxelIngestService")) {
+        if (ModList.get().isLoaded("neovoxy") || classExists("me.cortex.voxy.common.world.service.VoxelIngestService")) {
             voxyLoaded = VoxyCompat.init();
         }
     }

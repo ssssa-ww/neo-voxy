@@ -25,7 +25,7 @@ import org.jetbrains.annotations.NotNull;
  */
 public record VoxyPacketPayload(byte messageType, byte[] data) implements CustomPacketPayload {
 
-    public static final ResourceLocation ID = ResourceLocation.fromNamespaceAndPath("voxy", "lod_sync");
+    public static final ResourceLocation ID = ResourceLocation.fromNamespaceAndPath("neovoxy", "lod_sync");
     public static final Type<VoxyPacketPayload> TYPE = new Type<>(ID);
 
     // Message type constants

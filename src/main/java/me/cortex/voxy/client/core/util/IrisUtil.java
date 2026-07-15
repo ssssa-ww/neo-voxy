@@ -2,7 +2,7 @@ package me.cortex.voxy.client.core.util;
 
 import me.cortex.voxy.client.core.VoxyRenderSystem;
 import me.cortex.voxy.client.core.rendering.Viewport;
-import me.cortex.voxy.common.util.ModLoaderUtil;
+import net.neoforged.fml.ModList;
 import net.caffeinemc.mods.sodium.client.render.chunk.ChunkRenderMatrices;
 import net.irisshaders.iris.Iris;
 import net.irisshaders.iris.api.v0.IrisApi;
@@ -18,7 +18,7 @@ public class IrisUtil {
 
     public static CapturedViewportParameters CAPTURED_VIEWPORT_PARAMETERS;
 
-    public static final boolean IRIS_INSTALLED = ModLoaderUtil.isModLoaded("iris");
+    public static final boolean IRIS_INSTALLED = ModList.get().isLoaded("iris");
     public static final boolean SHADER_SUPPORT = true;// System.getProperty("voxy.enableExperimentalIrisPipeline",
                                                       // "false").equalsIgnoreCase("true");
 

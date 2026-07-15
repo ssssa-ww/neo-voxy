@@ -5,9 +5,6 @@ import dev.xantha.vss.common.VSSLogger;
 import dev.xantha.vss.networking.VSSNetworking;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import dev.xantha.vss.networking.server.broadcast.FarPlayerBroadcaster;
-import dev.xantha.vss.networking.server.command.VSSServerCommands;
-import dev.xantha.vss.networking.server.VSSServerNetworking;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -21,9 +18,6 @@ public final class VSSMod {
 
     public VSSMod(IEventBus modBus, ModContainer modContainer) {
         modBus.addListener(RegisterPayloadHandlersEvent.class, VSSNetworking::register);
-        NeoForge.EVENT_BUS.register(VSSServerNetworking.class);
-        NeoForge.EVENT_BUS.register(FarPlayerBroadcaster.class);
-        NeoForge.EVENT_BUS.register(VSSServerCommands.class);
         if (FMLEnvironment.dist.isClient()) {
             initClient(modContainer);
         }

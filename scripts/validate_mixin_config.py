@@ -17,6 +17,11 @@ YELLOW = '\033[1;33m'
 BLUE = '\033[0;34m'
 NC = '\033[0m'
 
+# ASCII replacements for Windows console
+CHECK = "[OK]"
+CROSS = "[FAIL]"
+WARN = "[!]"
+
 class MixinConfigValidator:
     def __init__(self):
         self.errors = []
@@ -52,11 +57,11 @@ class MixinConfigValidator:
         print(f"{BLUE}[1] Mixin Registration Coverage{NC}")
         
         # Read mixin configs
-        with open('src/main/resources/voxy.mixins.json') as f:
+        with open('src/main/resources/client.voxy.mixins.json') as f:
             client_config = json.load(f)
             client_mixins = set(client_config.get('client', []))
         
-        with open('src/main/resources/voxy-common.mixins.json') as f:
+        with open('src/main/resources/common.voxy.mixins.json') as f:
             common_config = json.load(f)
             common_mixins = set(common_config.get('mixins', []))
         
@@ -74,8 +79,8 @@ class MixinConfigValidator:
                 if 'me/cortex/voxy/client/mixin' in rel_path:
                     mixin_name = rel_path.replace('me/cortex/voxy/client/mixin/', '').replace('.java', '').replace('/', '.')
                     client_files.add(mixin_name)
-                elif 'me/cortex/voxy/common/mixin' in rel_path:
-                    mixin_name = rel_path.replace('me/cortex/voxy/common/mixin/', '').replace('.java', '').replace('/', '.')
+                elif 'me/cortex/voxy/commonImpl/mixin' in rel_path:
+                    mixin_name = rel_path.replace('me/cortex/voxy/commonImpl/mixin/', '').replace('.java', '').replace('/', '.')
                     common_files.add(mixin_name)
         
         # Check for unregistered active mixins (not excluded)
@@ -90,10 +95,10 @@ class MixinConfigValidator:
         
         if unregistered:
             self.warnings.append(f"Found {len(unregistered)} unregistered mixins that may need attention")
-            print(f"  {YELLOW}⚠{NC} {len(unregistered)} unregistered mixins")
+            print(f"  {YELLOW}{WARN}{NC} {len(unregistered)} unregistered mixins")
         else:
             self.passed_checks.append("All active mixins are properly registered")
-            print(f"  {GREEN}✓{NC} All active mixins registered")
+            print(f"  {GREEN}{CHECK}{NC} All active mixins registered")
         
         print()
     
@@ -107,14 +112,14 @@ class MixinConfigValidator:
             exclusions = re.findall(r"exclude\s+'([^']+)'", content)
         
         # Check if MixinBlockableEventLoop is excluded
-        blockable_excluded = True
+        blockable_excluded = any('MixinBlockableEventLoop' in exc for exc in exclusions)
         
         if not blockable_excluded:
             self.errors.append("MixinBlockableEventLoop not excluded but removed from mixin config")
-            print(f"  {RED}✗{NC} MixinBlockableEventLoop should be excluded (removed in Issue #2)")
+            print(f"  {RED}{CROSS}{NC} MixinBlockableEventLoop should be excluded (removed in Issue #2)")
         else:
             self.passed_checks.append("MixinBlockableEventLoop properly excluded")
-            print(f"  {GREEN}✓{NC} MixinBlockableEventLoop excluded")
+            print(f"  {GREEN}{CHECK}{NC} MixinBlockableEventLoop excluded")
         
         print()
     
@@ -157,9 +162,9 @@ class MixinConfigValidator:
         if remap_issues:
             for file, target, issue in remap_issues:
                 self.warnings.append(f"{file}: {target} - {issue}")
-                print(f"  {YELLOW}⚠{NC} {file}: {issue}")
+                print(f"  {YELLOW}{WARN}{NC} {file}: {issue}")
         else:
-            print(f"  {GREEN}✓{NC} Remap flags correctly applied")
+            print(f"  {GREEN}{CHECK}{NC} Remap flags correctly applied")
         
         print()
     
@@ -168,8 +173,8 @@ class MixinConfigValidator:
         print(f"{BLUE}[4] JSON Schema Validation{NC}")
         
         json_files = [
-            'src/main/resources/voxy.mixins.json',
-            'src/main/resources/voxy-common.mixins.json'
+            'src/main/resources/client.voxy.mixins.json',
+            'src/main/resources/common.voxy.mixins.json'
         ]
         
         for json_file in json_files:
@@ -183,20 +188,20 @@ class MixinConfigValidator:
                 
                 if missing_fields:
                     self.errors.append(f"{json_file}: Missing required fields: {missing_fields}")
-                    print(f"  {RED}✗{NC} {os.path.basename(json_file)}: Missing fields")
+                    print(f"  {RED}{CROSS}{NC} {os.path.basename(json_file)}: Missing fields")
                 else:
-                    print(f"  {GREEN}✓{NC} {os.path.basename(json_file)}: Valid schema")
+                    print(f"  {GREEN}{CHECK}{NC} {os.path.basename(json_file)}: Valid schema")
                 
                 # Check for duplicates
                 if 'client' in config:
                     mixins = config['client']
                     if len(mixins) != len(set(mixins)):
                         self.errors.append(f"{json_file}: Duplicate mixin entries")
-                        print(f"  {RED}✗{NC} Duplicate entries found")
+                        print(f"  {RED}{CROSS}{NC} Duplicate entries found")
                 
             except json.JSONDecodeError as e:
                 self.errors.append(f"{json_file}: JSON parse error - {e}")
-                print(f"  {RED}✗{NC} JSON parse error")
+                print(f"  {RED}{CROSS}{NC} JSON parse error")
         
         print()
     
@@ -215,10 +220,10 @@ class MixinConfigValidator:
         if naming_issues:
             for issue in naming_issues[:5]:  # Show first 5
                 self.warnings.append(issue)
-                print(f"  {YELLOW}⚠{NC} {issue}")
+                print(f"  {YELLOW}{WARN}{NC} {issue}")
         else:
             self.passed_checks.append("All mixin files follow naming conventions")
-            print(f"  {GREEN}✓{NC} Naming conventions followed")
+            print(f"  {GREEN}{CHECK}{NC} Naming conventions followed")
         
         print()
     
@@ -240,22 +245,16 @@ class MixinConfigValidator:
         print(f"Errors: {RED}{len(self.errors)}{NC}")
         
         if self.errors:
-            print(f"\n{RED}✗ VALIDATION FAILED{NC}")
+            print(f"\n{RED}{CROSS} VALIDATION FAILED{NC}")
             print("\nErrors:")
             for error in self.errors:
                 print(f"  • {error}")
         elif self.warnings:
-            print(f"\n{YELLOW}⚠ VALIDATION PASSED WITH WARNINGS{NC}")
+            print(f"\n{YELLOW}{WARN} VALIDATION PASSED WITH WARNINGS{NC}")
         else:
-            print(f"\n{GREEN}✓ ALL VALIDATION CHECKS PASSED{NC}")
+            print(f"\n{GREEN}{CHECK} ALL VALIDATION CHECKS PASSED{NC}")
 
 def main():
-    import sys
-    try:
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
-    except AttributeError:
-        pass
     validator = MixinConfigValidator()
     exit_code = validator.validate_all()
     return exit_code

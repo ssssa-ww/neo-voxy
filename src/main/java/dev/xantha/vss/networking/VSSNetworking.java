@@ -12,7 +12,7 @@ import dev.xantha.vss.networking.payloads.HandshakeC2SPayload;
 import dev.xantha.vss.networking.payloads.RegionPresenceC2SPayload;
 import dev.xantha.vss.networking.payloads.SessionConfigS2CPayload;
 import dev.xantha.vss.networking.payloads.VoxelColumnS2CPayload;
-import dev.xantha.vss.networking.server.VSSServerNetworking;
+import me.cortex.voxy.server.networking.VSSServerNetworking;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;

@@ -7,7 +7,7 @@ buildscript {
 }
 
 plugins {
-    id 'dev.architectury.loom' version '1.7-SNAPSHOT'
+    id 'dev.architectury.loom' version '1.7.435'
     id 'maven-publish'
     id "com.github.johnrengelman.shadow" version "8.1.1"
 }
@@ -99,7 +99,6 @@ shadowJar {
 remapJar {
     input.set shadowJar.archiveFile
     dependsOn shadowJar
-    atAccessWideners.add('voxy.accesswidener')
 }
 
 jar {
@@ -122,15 +121,14 @@ dependencies {
     forgeRuntimeLibrary "org.lwjgl:lwjgl"
     bundle(implementation("org.lwjgl:lwjgl-lmdb")) { transitive = false }
     forgeRuntimeLibrary "org.lwjgl:lwjgl-lmdb"
-    bundle(implementation("org.lwjgl:lwjgl-zstd")) { transitive = false }
-    forgeRuntimeLibrary "org.lwjgl:lwjgl-zstd"
 
     forgeRuntimeLibrary "org.lwjgl:lwjgl:$lwjglVersion:natives-windows"
     forgeRuntimeLibrary "org.lwjgl:lwjgl:$lwjglVersion:natives-linux"
     bundle(forgeRuntimeLibrary("org.lwjgl:lwjgl-lmdb:$lwjglVersion:natives-windows")) { transitive = false }
-    bundle(forgeRuntimeLibrary("org.lwjgl:lwjgl-zstd:$lwjglVersion:natives-windows")) { transitive = false }
     bundle(forgeRuntimeLibrary("org.lwjgl:lwjgl-lmdb:$lwjglVersion:natives-linux")) { transitive = false }
-    bundle(forgeRuntimeLibrary("org.lwjgl:lwjgl-zstd:$lwjglVersion:natives-linux")) { transitive = false }
+    bundle(forgeRuntimeLibrary("org.lwjgl:lwjgl-lmdb:$lwjglVersion:natives-linux-arm64")) { transitive = false }
+
+    bundle(implementation("com.github.luben:zstd-jni:1.5.6-3")) { transitive = false }
 
     // Storage backends
     bundle(implementation('org.rocksdb:rocksdbjni:8.10.0')) { transitive = false }
