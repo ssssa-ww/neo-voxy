@@ -29,8 +29,6 @@ public class Voxy {
         if (FMLLoader.getDist() == Dist.CLIENT) {
             modEventBus.addListener(this::onClientSetup);
             NeoForge.EVENT_BUS.addListener(this::onRegisterClientCommands);
-        } else if (FMLLoader.getDist() == Dist.DEDICATED_SERVER) {
-            NeoForge.EVENT_BUS.register(me.cortex.voxy.server.VoxyServer.class);
         }
     }
 

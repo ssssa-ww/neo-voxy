@@ -14,17 +14,6 @@ description='''
 Far distance rendering mod utilizing LoDs for massive render distances.
 '''
 
-[[mods]]
-modId="vss"
-version="${version}"
-displayName="VSS"
-displayTest="IGNORE_SERVER_VERSION"
-logoFile="assets/voxy/icon.png"
-authors="Xantha"
-description='''
-Voxel Storage Service
-'''
-
 [[dependencies.neovoxy]]
 modId="neoforge"
 type="required"
@@ -46,25 +35,8 @@ versionRange="[0.6.0,)"
 ordering="AFTER"
 side="CLIENT"
 
-[[dependencies.vss]]
-modId="neoforge"
-type="required"
-versionRange="[21.1.0,)"
-ordering="NONE"
-side="BOTH"
-
-[[dependencies.vss]]
-modId="minecraft"
-type="required"
-versionRange="[1.21.1,1.21.2)"
-ordering="NONE"
-side="BOTH"
-
 [[mixins]]
 config="voxy.mixins.json"
 
 [[mixins]]
 config="voxy-common.mixins.json"
-
-[[mixins]]
-config="vss.compat.mixins.json"
