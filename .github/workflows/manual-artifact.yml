@@ -1,6 +1,7 @@
 name: manual-artifact
 
-on: [ workflow_dispatch ]
+on: [workflow_dispatch]
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,6 +21,12 @@ jobs:
         with:
           cache-read-only: false
           cache-cleanup: always
+
+      - name: Download Voxy WorldGen dependency
+        run: |
+          dependency_url="$(curl -fsSL 'https://api.modrinth.com/v2/project/voxy-worldgen/version?loaders=%5B%22neoforge%22%5D&game_versions=%5B%221.21.1%22%5D' | jq -r '.[] | select(.version_number == "2.4.2") | .files[0].url' | head -n 1)"
+          test -n "$dependency_url"
+          curl -fsSL "$dependency_url" -o "../Voxy World Gen V2-neoforge-1.21.1-2.4.2.jar"
 
       - name: Gradle build
         run: ./gradlew build
